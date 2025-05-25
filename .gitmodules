@@ -7,3 +7,6 @@
 [submodule "include/OBJ-Loader"]
 	path = include/OBJ-Loader
 	url = https://github.com/Bly7/OBJ-Loader
+[submodule "include/stb"]
+	path = include/stb
+	url = https://github.com/nothings/stb

@@ -11,6 +11,7 @@ uniform sampler2D albedoMap;
 uniform sampler2D metallicMap;
 uniform sampler2D roughnessMap;
 uniform sampler2D normalMap;
+uniform int isEmissive;
 
 out vec4 FragColor;
 
@@ -61,6 +62,11 @@ void main(){
 
     float mask = texture(metallicMap, texCoord).a;
     if (mask < 0.2) discard;
+
+    if(isEmissive == 1) {
+        FragColor = vec4(albedo, alpha);
+        return;
+    }
 
     vec3 N = getNormalFromMap();
     vec3 V = normalize(camPos - FragPos);

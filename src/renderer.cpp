@@ -10,6 +10,7 @@
 #include <freetype/include/ft2build.h>
 #include FT_FREETYPE_H
 #include <map>
+#include <vector>
 
 unsigned int SCR_WIDTH = 800;
 unsigned int SCR_HEIGHT = 600;
@@ -27,6 +28,9 @@ bool mousePressed = false;
 float lastMouseX = SCR_WIDTH / 2.0f;
 float lastMouseY = SCR_HEIGHT / 2.0f;
 float mouseSensitivity = 0.007f;
+
+std::vector<unsigned int> VAOs;
+std::vector<unsigned int> buffers;
 
 const char* uiVertexPath = "./src/shaders/ui.vert";
 const char* uiFragmentPath = "./src/shaders/ui.frag";
@@ -199,6 +203,9 @@ unsigned int createShader(const char* vertSource, const char* fragSource){
     return shaderProgram;
 }
 void loadModel(const char* file, unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, unsigned int &indexCount){
+    VAOs.push_back(VAO);
+    buffers.push_back(VBO);
+    buffers.push_back(EBO);
     objl::Loader loader;
     if(!loader.LoadFile(file)){
         std::cerr<<"Failed to load OBJ file"<<std::endl;
@@ -258,7 +265,7 @@ unsigned int loadTexture(const char* file){
     }
     return textureID;
 }
-void loadTexturesToGPU(unsigned int textureIDs[], unsigned int shaderProgram){
+void drawObject(unsigned int textureIDs[], unsigned int shaderProgram, unsigned int VAO, unsigned int indexCount){
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, textureIDs[0]);
     glActiveTexture(GL_TEXTURE1);
@@ -271,6 +278,8 @@ void loadTexturesToGPU(unsigned int textureIDs[], unsigned int shaderProgram){
     glUniform1i(glGetUniformLocation(shaderProgram, "metallicMap"), 1);
     glUniform1i(glGetUniformLocation(shaderProgram, "roughnessMap"), 2);
     glUniform1i(glGetUniformLocation(shaderProgram, "normalMap"), 3);
+    glBindVertexArray(VAO);
+    glDrawElements(GL_TRIANGLES, indexCount, GL_UNSIGNED_INT, 0);
 }
 struct Character{
     unsigned int textureID;
@@ -451,6 +460,8 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         1.0f, 0.0f,  1.0f, 0.0f
     };
     unsigned int spriteVAO, spriteVBO;
+    VAOs.push_back(spriteVAO);
+    buffers.push_back(spriteVBO);
     glGenVertexArrays(1, &spriteVAO);
     glGenBuffers(1, &spriteVBO);
     glBindBuffer(GL_ARRAY_BUFFER, spriteVBO);
@@ -461,6 +472,8 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
     unsigned int textVAO, textVBO;
+    VAOs.push_back(textVAO);
+    buffers.push_back(textVBO);
     glGenVertexArrays(1, &textVAO);
     glGenBuffers(1, &textVBO);
     glBindVertexArray(textVAO);
@@ -509,81 +522,36 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
 
         glUniform1i(glGetUniformLocation(shaderProgram, "isEmissive"), 0);
         
-        if(gpuEnabled){
-            loadTexturesToGPU(gpuTextures, shaderProgram);
-            glBindVertexArray(gpuVAO);
-            glDrawElements(GL_TRIANGLES, gpuIndexCount, GL_UNSIGNED_INT, 0);
-        }
-
-        if(topFanEnabled){
-            loadTexturesToGPU(caseTextures, shaderProgram);
-            glBindVertexArray(topFanVAO);
-            glDrawElements(GL_TRIANGLES, topFanIndexCount, GL_UNSIGNED_INT, 0);
-        }
-
-        if(frontFanEnabled){
-            loadTexturesToGPU(caseTextures, shaderProgram);
-            glBindVertexArray(frontFanVAO);
-            glDrawElements(GL_TRIANGLES, frontFanIndexCount, GL_UNSIGNED_INT, 0);
-        }
+        if(gpuEnabled) drawObject(gpuTextures, shaderProgram, gpuVAO, gpuIndexCount);
+        if(topFanEnabled) drawObject(caseTextures, shaderProgram, topFanVAO, topFanIndexCount);
+        if(frontFanEnabled) drawObject(caseTextures, shaderProgram, frontFanVAO, frontFanIndexCount);
 
         for(int i=0; i<3; i++){
             if(backFanLocations[i]>0.0f) continue;
             glm::mat4 backFanLocation = glm::mat4(1.0f);
             backFanLocation = glm::translate(backFanLocation, glm::vec3(0, backFanLocations[i], 0));
             glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &backFanLocation[0][0]);
-            loadTexturesToGPU(caseTextures, shaderProgram);
-            glBindVertexArray(backFanVAO);
-            glDrawElements(GL_TRIANGLES, backFanIndexCount, GL_UNSIGNED_INT, 0);
+            drawObject(caseTextures, shaderProgram, backFanVAO, backFanIndexCount);
         }
         glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
 
-        if(cpuFanEnabled){
-            loadTexturesToGPU(caseTextures, shaderProgram);
-            glBindVertexArray(cpuFanVAO);
-            glDrawElements(GL_TRIANGLES, cpuFanIndexCount, GL_UNSIGNED_INT, 0);
-        }
+        if(cpuFanEnabled) drawObject(caseTextures, shaderProgram, cpuFanVAO, cpuFanIndexCount);
 
-        loadTexturesToGPU(cpuTextures, shaderProgram);
-        glBindVertexArray(cpuVAO);
-        glDrawElements(GL_TRIANGLES, cpuIndexCount, GL_UNSIGNED_INT, 0);
-
-        loadTexturesToGPU(ramTextures, shaderProgram);
-        glBindVertexArray(ramVAO);
-        glDrawElements(GL_TRIANGLES, ramIndexCount, GL_UNSIGNED_INT, 0);
-
-        loadTexturesToGPU(motherboardTextures, shaderProgram);
-        glBindVertexArray(motherboardVAO);
-        glDrawElements(GL_TRIANGLES, motherboardIndexCount, GL_UNSIGNED_INT, 0);
-
-        loadTexturesToGPU(psuTextures, shaderProgram);
-        glBindVertexArray(psuVAO);
-        glDrawElements(GL_TRIANGLES, psuIndexCount, GL_UNSIGNED_INT, 0);
-
-        loadTexturesToGPU(ioShieldTextures, shaderProgram);
-        glBindVertexArray(ioShieldVAO);
-        glDrawElements(GL_TRIANGLES, ioShieldIndexCount, GL_UNSIGNED_INT, 0);
-
-        loadTexturesToGPU(caseTextures, shaderProgram);
-        glBindVertexArray(caseVAO);
-        glDrawElements(GL_TRIANGLES, caseIndexCount, GL_UNSIGNED_INT, 0);
-
-        loadTexturesToGPU(shieldTextures, shaderProgram);
-        glBindVertexArray(shieldVAO);
-        glDrawElements(GL_TRIANGLES, shieldIndexCount, GL_UNSIGNED_INT, 0);
-
-        loadTexturesToGPU(glassTextures, shaderProgram);
-        glBindVertexArray(glassVAO);
-        glDrawElements(GL_TRIANGLES, glassIndexCount, GL_UNSIGNED_INT, 0);
+        drawObject(cpuTextures, shaderProgram, cpuVAO, cpuIndexCount);
+        drawObject(ramTextures, shaderProgram, ramVAO, ramIndexCount);
+        drawObject(motherboardTextures, shaderProgram, motherboardVAO, motherboardIndexCount);
+        drawObject(psuTextures, shaderProgram, psuVAO, psuIndexCount);
+        drawObject(ioShieldTextures, shaderProgram, ioShieldVAO, ioShieldIndexCount);
+        drawObject(caseTextures, shaderProgram, caseVAO, caseIndexCount);
+        drawObject(shieldTextures, shaderProgram, shieldVAO, shieldIndexCount);
+        drawObject(glassTextures, shaderProgram, glassVAO, glassIndexCount);
 
         glm::mat4 arrowsLocation = glm::mat4(1.0f);
         arrowsLocation = glm::translate(arrowsLocation, glm::vec3(0.0f, 5.0f, 0.0f));
         arrowsLocation = glm::scale(arrowsLocation, glm::vec3(0.5f, 0.5f, 0.5f));
         glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &arrowsLocation[0][0]);
-        loadTexturesToGPU(arrowTextures, shaderProgram);
         glUniform1i(glGetUniformLocation(shaderProgram, "isEmissive"), 1);
-        glBindVertexArray(zArrowVAO);
-        glDrawElements(GL_TRIANGLES, zArrowIndexCount, GL_UNSIGNED_INT, 0);
+        drawObject(arrowTextures, shaderProgram, zArrowVAO, zArrowIndexCount);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, otherArrowColors[0]);
         glUniform1i(glGetUniformLocation(shaderProgram, "albedoMap"), 0);
@@ -600,9 +568,8 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glfwPollEvents();
     }
 
-    glDeleteVertexArrays(1, &caseVAO);
-    glDeleteBuffers(1, &caseVBO);
-    glDeleteBuffers(1, &caseEBO);
+    for(unsigned int VAO : VAOs) glDeleteVertexArrays(1, &VAO);
+    for(unsigned int buffer : buffers) glDeleteBuffers(1, &buffer);
 
     glfwTerminate();
     return 0;

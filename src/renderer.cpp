@@ -7,6 +7,9 @@
 #include <OBJ-Loader/Source/OBJ_Loader.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
+#include <freetype/include/ft2build.h>
+#include FT_FREETYPE_H
+#include <map>
 
 unsigned int SCR_WIDTH = 800;
 unsigned int SCR_HEIGHT = 600;
@@ -24,6 +27,10 @@ bool mousePressed = false;
 float lastMouseX = SCR_WIDTH / 2.0f;
 float lastMouseY = SCR_HEIGHT / 2.0f;
 float mouseSensitivity = 0.007f;
+
+const char* uiVertexPath = "./src/shaders/ui.vert";
+const char* uiFragmentPath = "./src/shaders/ui.frag";
+const char* textFragmentPath = "./src/shaders/text.frag";
 
 const char* caseSource = "./src/models/case.obj";
 const char* caseTexturesSource[4] = {
@@ -265,6 +272,84 @@ void loadTexturesToGPU(unsigned int textureIDs[], unsigned int shaderProgram){
     glUniform1i(glGetUniformLocation(shaderProgram, "roughnessMap"), 2);
     glUniform1i(glGetUniformLocation(shaderProgram, "normalMap"), 3);
 }
+struct Character{
+    unsigned int textureID;
+    glm::ivec2 size;
+    glm::ivec2 bearing;
+    unsigned int advance;
+};
+std::map<char, Character> Characters;
+void prepareCharacters(){
+    FT_Library ft;
+    if(FT_Init_FreeType(&ft)){
+        std::cerr<<"Could not initialize FreeType Library"<<std::endl;
+        return;
+    }
+    FT_Face face;
+    if(FT_New_Face(ft, "./src/fonts/Lato.ttf", 0, &face)){
+        std::cerr<<"Could not load font at ./src/fonts/Lato.ttf"<<std::endl;
+        return;
+    }
+    FT_Set_Pixel_Sizes(face, 0, 48);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for(unsigned char c = 0; c < 128; c++){
+        if(FT_Load_Char(face, c, FT_LOAD_RENDER)){
+            std::cerr<<"Failed to load glyph: "<<c<<std::endl;
+            continue;
+        }
+        unsigned int textureID;
+        glGenTextures(1, &textureID);
+        glBindTexture(GL_TEXTURE_2D, textureID);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, face->glyph->bitmap.width, face->glyph->bitmap.rows, 0, GL_RED, GL_UNSIGNED_BYTE, face->glyph->bitmap.buffer);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        Character character = { 
+                                textureID, 
+                                glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
+                                glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
+                                static_cast<unsigned int>(face->glyph->advance.x)
+                              };
+        Characters[c] = character;
+    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+    FT_Done_Face(face);
+    FT_Done_FreeType(ft);
+}
+void RenderText(unsigned int shader, unsigned int VAO, unsigned int VBO, char* text, float x, float y, float scale, glm::vec3 color){
+    glUseProgram(shader);
+    glm::mat4 textProj = glm::ortho(0.0f, (float) SCR_WIDTH, 0.0f, (float) SCR_HEIGHT);
+    glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, &textProj[0][0]);
+    glUniform3f(glGetUniformLocation(shader, "textColor"), color.x, color.y, color.z);
+    glm::mat4 spriteModel = glm::mat4(1.0f);
+    glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, &spriteModel[0][0]);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(VAO);
+    for(const char* p = text; *p; p++){
+        Character ch = Characters[*p];
+        float xPos = x + ch.bearing.x * scale;
+        float yPos = y - (ch.size.y - ch.bearing.y) * scale;
+        float w = ch.size.x * scale;
+        float h = ch.size.y * scale;
+        float vertices[6][4] = {
+            {xPos, yPos + h, 0.0f, 0.0f},
+            {xPos, yPos, 0.0f, 1.0f},
+            {xPos + w, yPos, 1.0f, 1.0f},
+            {xPos, yPos + h, 0.0f, 0.0f},
+            {xPos + w, yPos, 1.0f, 1.0f},
+            {xPos + w, yPos + h, 1.0f, 0.0f}
+        };
+        glBindTexture(GL_TEXTURE_2D, ch.textureID);
+        glBindBuffer(GL_ARRAY_BUFFER, VBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        x += (ch.advance >> 6) * scale;
+    }
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
 int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
@@ -356,6 +441,42 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     unsigned int yArrowVAO, yArrowVBO, yArrowEBO, yArrowIndexCount;
     loadModel(yArrowSource, yArrowVAO, yArrowVBO, yArrowEBO, yArrowIndexCount);
     unsigned int otherArrowColors[2] = {loadTexture(arrowTexturesSource[4]), loadTexture(arrowTexturesSource[5])};
+
+    float spriteVertices[] = {
+        0.0f, 1.0f,  0.0f, 1.0f,
+        1.0f, 0.0f,  1.0f, 0.0f,
+        0.0f, 0.0f,  0.0f, 0.0f,
+        0.0f, 1.0f,  0.0f, 1.0f,
+        1.0f, 1.0f,  1.0f, 1.0f,
+        1.0f, 0.0f,  1.0f, 0.0f
+    };
+    unsigned int spriteVAO, spriteVBO;
+    glGenVertexArrays(1, &spriteVAO);
+    glGenBuffers(1, &spriteVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, spriteVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(spriteVertices), spriteVertices, GL_STATIC_DRAW);
+    glBindVertexArray(spriteVAO);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*) 0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    unsigned int textVAO, textVBO;
+    glGenVertexArrays(1, &textVAO);
+    glGenBuffers(1, &textVBO);
+    glBindVertexArray(textVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, textVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * 6 * 4, nullptr, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*) 0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
+    prepareCharacters();
+
+    char* uiVertexShaderSource = getShaders(uiVertexPath);
+    char* uiFragmentShaderSource = getShaders(uiFragmentPath);
+    char* textFragmentShaderSource = getShaders(textFragmentPath);
+    unsigned int textProgram = createShader(uiVertexShaderSource, textFragmentShaderSource);
+    unsigned int uiProgram = createShader(uiVertexShaderSource, uiFragmentShaderSource);
 
 
     char* vertexShaderSource = getShaders(vertexShaderPath);

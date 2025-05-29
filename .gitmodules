@@ -10,3 +10,6 @@
 [submodule "include/stb"]
 	path = include/stb
 	url = https://github.com/nothings/stb
+[submodule "include/freetype"]
+	path = include/freetype
+	url = https://github.com/freetype/freetype

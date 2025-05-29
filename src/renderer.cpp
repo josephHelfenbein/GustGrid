@@ -11,6 +11,7 @@
 #include FT_FREETYPE_H
 #include <map>
 #include <vector>
+#include <bits/stdc++.h>
 
 unsigned int SCR_WIDTH = 800;
 unsigned int SCR_HEIGHT = 600;
@@ -641,27 +642,27 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glBindVertexArray(yArrowVAO);
         glDrawElements(GL_TRIANGLES, yArrowIndexCount, GL_UNSIGNED_INT, 0);
 
-        drawText(textProgram, textVAO, textVBO, "Menu", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 70.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
-        drawText(textProgram, textVAO, textVBO, "GPU Enabled", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 100.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
+        drawText(textProgram, textVAO, textVBO, "Menu", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 70.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
+        drawText(textProgram, textVAO, textVBO, "GPU Enabled", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 100.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
         drawCheckbox(textProgram, textVAO, textVBO, glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - checkboxYPositions[0]), glm::vec2(20.0f, 20.0f), gpuEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
-        drawText(textProgram, textVAO, textVBO, gpuEnabled ? "ON" : "OFF", glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - 100.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
-        drawText(textProgram, textVAO, textVBO, "Top Fan Enabled", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 130.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
+        drawText(textProgram, textVAO, textVBO, gpuEnabled ? "ON" : "OFF", glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - 100.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
+        drawText(textProgram, textVAO, textVBO, "Top Fan Enabled", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 130.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
         drawCheckbox(textProgram, textVAO, textVBO, glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - checkboxYPositions[1]), glm::vec2(20.0f, 20.0f), topFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
-        drawText(textProgram, textVAO, textVBO, topFanEnabled ? "ON" : "OFF", glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - 130.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
-        drawText(textProgram, textVAO, textVBO, "CPU Fan Enabled", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 160.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
+        drawText(textProgram, textVAO, textVBO, topFanEnabled ? "ON" : "OFF", glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - 130.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
+        drawText(textProgram, textVAO, textVBO, "CPU Fan Enabled", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 160.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
         drawCheckbox(textProgram, textVAO, textVBO, glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - checkboxYPositions[2]), glm::vec2(20.0f, 20.0f), cpuFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
-        drawText(textProgram, textVAO, textVBO, cpuFanEnabled ? "ON" : "OFF", glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - 160.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
-        drawText(textProgram, textVAO, textVBO, "Front Fan Enabled", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 190.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
+        drawText(textProgram, textVAO, textVBO, cpuFanEnabled ? "ON" : "OFF", glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - 160.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
+        drawText(textProgram, textVAO, textVBO, "Front Fan Enabled", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 190.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
         drawCheckbox(textProgram, textVAO, textVBO, glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - checkboxYPositions[3]), glm::vec2(20.0f, 20.0f), frontFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
-        drawText(textProgram, textVAO, textVBO, frontFanEnabled ? "ON" : "OFF", glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - 190.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
-        drawText(textProgram, textVAO, textVBO, "Back Fan Amount", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 220.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
-        char backFanText[32];
-        snprintf(backFanText, sizeof(backFanText), "%d", 3 - std::count_if(backFanLocations, backFanLocations + 3, [](float loc){ return loc < 0.0f; }));
-        drawText(textProgram, textVAO, textVBO, backFanText, glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - 220.0f), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
+        drawText(textProgram, textVAO, textVBO, frontFanEnabled ? "ON" : "OFF", glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - 190.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
+        char numberOfFans = '0';
+        for(int i=0; i<3; i++) if(backFanLocations[i]<=0.0f) numberOfFans++;
+        const char backFanText[] = {'B', 'a', 'c', 'k', ' ', 'F', 'a', 'n', 's', ':', ' ', numberOfFans};
+        drawText(textProgram, textVAO, textVBO, backFanText, glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 200.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
         int lastSliderY = 250;
         for(int i=0; i<3; i++){
-            if(backFanLocations[i]<0.0f) {
-                drawText(textProgram, textVAO, textVBO, "Back Fan "+(i+1), glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - lastSliderY), 1.0f, glm::vec3(0.0f, 0.0f, 0.0f));
+            if(backFanLocations[i]<=0.0f) {
+                drawText(textProgram, textVAO, textVBO, "Back Fan "+(i+1), glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - lastSliderY), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
                 drawSlider(textProgram, spriteVAO, spriteVBO, glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - lastSliderY), glm::vec2(180.0f, 20.0f), (backFanLocations[i] + 5.0f) / 10.0f, glassTextures[1], sliderKnobTexture);
                 lastSliderY += 30;
             }

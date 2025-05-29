@@ -326,7 +326,7 @@ void prepareCharacters(){
     FT_Done_Face(face);
     FT_Done_FreeType(ft);
 }
-void RenderText(unsigned int shader, unsigned int VAO, unsigned int VBO, char* text, float x, float y, float scale, glm::vec3 color){
+void drawText(unsigned int shader, unsigned int VAO, unsigned int VBO, const char* text, glm::vec2 position, float scale, glm::vec3 color){
     glUseProgram(shader);
     glm::mat4 textProj = glm::ortho(0.0f, (float) SCR_WIDTH, 0.0f, (float) SCR_HEIGHT);
     glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, &textProj[0][0]);
@@ -337,8 +337,8 @@ void RenderText(unsigned int shader, unsigned int VAO, unsigned int VBO, char* t
     glBindVertexArray(VAO);
     for(const char* p = text; *p; p++){
         Character ch = Characters[*p];
-        float xPos = x + ch.bearing.x * scale;
-        float yPos = y - (ch.size.y - ch.bearing.y) * scale;
+        float xPos = position.x + ch.bearing.x * scale;
+        float yPos = position.y - (ch.size.y - ch.bearing.y) * scale;
         float w = ch.size.x * scale;
         float h = ch.size.y * scale;
         float vertices[6][4] = {
@@ -354,11 +354,28 @@ void RenderText(unsigned int shader, unsigned int VAO, unsigned int VBO, char* t
         glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glDrawArrays(GL_TRIANGLES, 0, 6);
-        x += (ch.advance >> 6) * scale;
+        position.x += (ch.advance >> 6) * scale;
     }
     glBindVertexArray(0);
     glBindTexture(GL_TEXTURE_2D, 0);
 }
+void drawSprite(unsigned int shader, unsigned int VAO, unsigned int VBO, glm::vec2 position, glm::vec2 size, glm::vec3 color, unsigned int textureID){
+    glUseProgram(shader);
+    glm::mat4 spriteProj = glm::ortho(0.0f, (float) SCR_WIDTH, 0.0f, (float) SCR_HEIGHT);
+    glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, &spriteProj[0][0]);
+    glUniform3f(glGetUniformLocation(shader, "tintColor"), color.x, color.y, color.z);
+    glm::mat4 spriteModel = glm::mat4(1.0f);
+    spriteModel = glm::translate(spriteModel, glm::vec3(position.x, position.y, 0.0f));
+    spriteModel = glm::scale(spriteModel, glm::vec3(size.x, size.y, 1.0f));
+    glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, &spriteModel[0][0]);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, textureID);
+    glUniform1i(glGetUniformLocation(shader, "image"), 0);
+    glBindVertexArray(VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+} 
 int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
@@ -561,6 +578,9 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glUniform1i(glGetUniformLocation(shaderProgram, "albedoMap"), 0);
         glBindVertexArray(yArrowVAO);
         glDrawElements(GL_TRIANGLES, yArrowIndexCount, GL_UNSIGNED_INT, 0);
+
+        drawText(textProgram, textVAO, textVBO, "GustGrid", glm::vec2(2.5f, 5.0f), 1.0f, glm::vec3(1.0f, 1.0f, 1.0f));
+        drawSprite(uiProgram, spriteVAO, spriteVBO, glm::vec2(0.0f, 0.0f), glm::vec2(200.0f, 50.0f), glm::vec3(0.7f, 0.14f, 0.2f), glassTextures[1]);
 
         glBindVertexArray(0);
 

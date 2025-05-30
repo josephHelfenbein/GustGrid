@@ -11,11 +11,32 @@
 #include FT_FREETYPE_H
 #include <map>
 #include <vector>
-#include <bits/stdc++.h>
+
+#define uiVertexPath "./src/shaders/ui.vert"
+#define uiFragmentPath "./src/shaders/ui.frag"
+#define textFragmentPath "./src/shaders/text.frag"
+#define checkboxCheckedSource "./src/textures/checkbox/checked.png"
+#define checkboxUncheckedSource "./src/textures/checkbox/unchecked.png"
+#define sliderKnobSource "./src/textures/slider/knob.png"
+#define caseSource "./src/models/case.obj"
+#define cpuSource "./src/models/cpu.obj"
+#define gpuSource "./src/models/gpu.obj"
+#define ramSource "./src/models/ram.obj"
+#define motherboardSource "./src/models/motherboard.obj"
+#define psuSource "./src/models/psu.obj"
+#define ioShieldSource "./src/models/ioshield.obj"
+#define shieldSource "./src/models/shield.obj"
+#define glassSource "./src/models/glass.obj"
+#define topFanSource "./src/models/topfan.obj"
+#define frontFanSource "./src/models/frontfan.obj"
+#define backFanSource "./src/models/backfan.obj"
+#define cpuFanSource "./src/models/cpufan.obj"
+#define vertexShaderPath "./src/shaders/main.vert"
+#define fragmentShaderPath "./src/shaders/main.frag"
+#define PI 3.14159265358979323846f
 
 unsigned int SCR_WIDTH = 800;
 unsigned int SCR_HEIGHT = 600;
-const float PI = 3.14159265358979323846f;
 float camYaw = PI / 8;
 float camPitch = PI / 12;
 float camRadius = 15.0f;
@@ -33,97 +54,60 @@ float mouseSensitivity = 0.007f;
 std::vector<unsigned int> VAOs;
 std::vector<unsigned int> buffers;
 
-const char* uiVertexPath = "./src/shaders/ui.vert";
-const char* uiFragmentPath = "./src/shaders/ui.frag";
-const char* textFragmentPath = "./src/shaders/text.frag";
-
-const char* checkboxCheckedSource = "./src/textures/checkbox/checked.png";
-const char* checkboxUncheckedSource = "./src/textures/checkbox/unchecked.png";
-const char* sliderKnobSource = "./src/textures/slider/knob.png";
-
-const char* caseSource = "./src/models/case.obj";
 const char* caseTexturesSource[4] = {
     "./src/textures/case/basecolor.png",
     "./src/textures/case/metallic.png",
     "./src/textures/case/roughness.png",
     "./src/textures/case/normal.png"
 };
-const char* cpuSource = "./src/models/cpu.obj";
 const char* cpuTexturesSource[4] = {
     "./src/textures/cpu/basecolor.png",
     "./src/textures/cpu/metallic.png",
     "./src/textures/cpu/roughness.png",
     "./src/textures/cpu/normal.png"
 };
-const char* gpuSource = "./src/models/gpu.obj";
 const char* gpuTexturesSource[4] = {
     "./src/textures/gpu/basecolor.png",
     "./src/textures/gpu/metallic.png",
     "./src/textures/gpu/roughness.png",
     "./src/textures/gpu/normal.png"
 };
-const char* ramSource = "./src/models/ram.obj";
 const char* ramTexturesSource[4] = {
     "./src/textures/ram/basecolor.png",
     "./src/textures/ram/metallic.png",
     "./src/textures/ram/roughness.png",
     "./src/textures/ram/normal.png"
 };
-const char* motherboardSource = "./src/models/motherboard.obj";
 const char* motherboardTexturesSource[4] = {
     "./src/textures/motherboard/basecolor.png",
     "./src/textures/motherboard/metallic.png",
     "./src/textures/motherboard/roughness.png",
     "./src/textures/motherboard/normal.png"
 };
-const char* psuSource = "./src/models/psu.obj";
 const char* psuTexturesSource[4] = {
     "./src/textures/psu/basecolor.png",
     "./src/textures/psu/metallic.png",
     "./src/textures/psu/roughness.png",
     "./src/textures/psu/normal.png"
 };
-const char* ioShieldSource = "./src/models/ioshield.obj";
 const char* ioShieldTexturesSource[4] = {
     "./src/textures/ioshield/basecolor.png",
     "./src/textures/ioshield/metallic.png",
     "./src/textures/ioshield/roughness.png",
     "./src/textures/ioshield/normal.png"
 };
-const char* shieldSource = "./src/models/shield.obj";
 const char* shieldTexturesSource[4] = {
     "./src/textures/shield/basecolor.png",
     "./src/textures/shield/metallic.png",
     "./src/textures/shield/roughness.png",
     "./src/textures/shield/normal.png"
 };
-const char* glassSource = "./src/models/glass.obj";
 const char* glassTexturesSource[4] = {
     "./src/textures/glass/basecolor.png",
     "./src/textures/glass/metallic.png",
     "./src/textures/glass/roughness.png",
     "./src/textures/glass/normal.png"
 };
-
-const char* topFanSource = "./src/models/topfan.obj";
-const char* frontFanSource = "./src/models/frontfan.obj";
-const char* backFanSource = "./src/models/backfan.obj";
-const char* cpuFanSource = "./src/models/cpufan.obj";
-
-const char* zArrowSource = "./src/models/upwardvector.obj";
-const char* arrowTexturesSource[6] = {
-    "./src/textures/arrow/basecolor-blue.png",
-    "./src/textures/arrow/metallic.png",
-    "./src/textures/arrow/roughness.png",
-    "./src/textures/arrow/normal.png",
-    "./src/textures/arrow/basecolor-green.png",
-    "./src/textures/arrow/basecolor-red.png",
-};
-const char* xArrowSource = "./src/models/xvector.obj";
-const char* yArrowSource = "./src/models/yvector.obj";
-
-const char* vertexShaderPath = "./src/shaders/main.vert";
-const char* fragmentShaderPath = "./src/shaders/main.frag";
 
 float checkboxYPositions[4] = {100.0f, 130.0f, 160.0f, 190.0f};
 bool checkboxItems[4];
@@ -152,7 +136,23 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
         firstMouse = false;
 
         for(int i=0; i<4; i++){
-            if(yposFloat > checkboxYPositions[i] && yposFloat < checkboxYPositions[i] + 32.0f && xposFloat > 100.0f && xposFloat < 132.0f) checkboxItems[i] = !checkboxItems[i];
+            if(
+                yposFloat > SCR_HEIGHT - checkboxYPositions[i]
+            &&  yposFloat < SCR_HEIGHT - checkboxYPositions[i] + 32.0f
+            &&  xposFloat > SCR_WIDTH - 100.0f
+            &&  xposFloat < SCR_WIDTH - 132.0f) checkboxItems[i] = !checkboxItems[i];
+        }
+    }
+    for(int i=0; i<3; i++){
+        if(
+            yposFloat > sliderYPositions[i]
+        &&  yposFloat < sliderYPositions[i] + 32.0f
+        &&  xposFloat > SCR_WIDTH - 100.0f + sliderXValues[i]
+        &&  xposFloat < SCR_WIDTH - 100.0f + sliderXValues[i] + 32.0f) {
+            sliderXValues[i] = xposFloat - (SCR_WIDTH - 100.0f);
+            if(sliderXValues[i] < 0.0f) sliderXValues[i] = 0.0f;
+            else if(sliderXValues[i] > 64.0f) sliderXValues[i] = 64.0f;
+            sliderXValues[i] /= 64.0f;
         }
     }
     float xOffset = (xposFloat - lastMouseX) * mouseSensitivity;
@@ -420,7 +420,7 @@ void drawSlider(unsigned int shader, unsigned int VAO, unsigned int VBO, glm::ve
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glDrawArrays(GL_TRIANGLES, 0, 6);
-    float knobX = position.x + value * size.x - size.x / 2.0f;
+    float knobX = position.x - value * size.x - size.x / 2.0f;
     glm::mat4 knobModel = glm::mat4(1.0f);
     knobModel = glm::translate(knobModel, glm::vec3(knobX, position.y + size.y * 0.5f - size.y * 0.1f, 0.0f));
     knobModel = glm::scale(knobModel, glm::vec3(size.y * 0.2f, size.y * 0.2f, 1.0f));
@@ -512,16 +512,6 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     loadModel(backFanSource, backFanVAO, backFanVBO, backFanEBO, backFanIndexCount);
     unsigned int cpuFanVAO, cpuFanVBO, cpuFanEBO, cpuFanIndexCount;
     loadModel(cpuFanSource, cpuFanVAO, cpuFanVBO, cpuFanEBO, cpuFanIndexCount);
-
-    unsigned int zArrowVAO, zArrowVBO, zArrowEBO, zArrowIndexCount;
-    loadModel(zArrowSource, zArrowVAO, zArrowVBO, zArrowEBO, zArrowIndexCount);
-    unsigned int arrowTextures[4];
-    for(int i = 0; i < 4; i++) arrowTextures[i] = loadTexture(arrowTexturesSource[i]);
-    unsigned int xArrowVAO, xArrowVBO, xArrowEBO, xArrowIndexCount;
-    loadModel(xArrowSource, xArrowVAO, xArrowVBO, xArrowEBO, xArrowIndexCount);
-    unsigned int yArrowVAO, yArrowVBO, yArrowEBO, yArrowIndexCount;
-    loadModel(yArrowSource, yArrowVAO, yArrowVBO, yArrowEBO, yArrowIndexCount);
-    unsigned int otherArrowColors[2] = {loadTexture(arrowTexturesSource[4]), loadTexture(arrowTexturesSource[5])};
 
     float spriteVertices[] = {
         0.0f, 1.0f,  0.0f, 1.0f,
@@ -626,22 +616,6 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         drawObject(shieldTextures, shaderProgram, shieldVAO, shieldIndexCount);
         drawObject(glassTextures, shaderProgram, glassVAO, glassIndexCount);
 
-        glm::mat4 arrowsLocation = glm::mat4(1.0f);
-        arrowsLocation = glm::translate(arrowsLocation, glm::vec3(0.0f, 5.0f, 0.0f));
-        arrowsLocation = glm::scale(arrowsLocation, glm::vec3(0.5f, 0.5f, 0.5f));
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &arrowsLocation[0][0]);
-        glUniform1i(glGetUniformLocation(shaderProgram, "isEmissive"), 1);
-        drawObject(arrowTextures, shaderProgram, zArrowVAO, zArrowIndexCount);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, otherArrowColors[0]);
-        glUniform1i(glGetUniformLocation(shaderProgram, "albedoMap"), 0);
-        glBindVertexArray(xArrowVAO);
-        glDrawElements(GL_TRIANGLES, xArrowIndexCount, GL_UNSIGNED_INT, 0);
-        glBindTexture(GL_TEXTURE_2D, otherArrowColors[1]);
-        glUniform1i(glGetUniformLocation(shaderProgram, "albedoMap"), 0);
-        glBindVertexArray(yArrowVAO);
-        glDrawElements(GL_TRIANGLES, yArrowIndexCount, GL_UNSIGNED_INT, 0);
-
         drawText(textProgram, textVAO, textVBO, "Menu", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 70.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
         drawText(textProgram, textVAO, textVBO, "GPU Enabled", glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - 100.0f), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
         drawCheckbox(textProgram, textVAO, textVBO, glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - checkboxYPositions[0]), glm::vec2(20.0f, 20.0f), gpuEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
@@ -663,7 +637,7 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         for(int i=0; i<3; i++){
             if(backFanLocations[i]<=0.0f) {
                 drawText(textProgram, textVAO, textVBO, "Back Fan "+(i+1), glm::vec2((SCR_WIDTH) - 200.0f, SCR_HEIGHT - lastSliderY), 0.3f, glm::vec3(0.0f, 0.0f, 0.0f));
-                drawSlider(textProgram, spriteVAO, spriteVBO, glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - lastSliderY), glm::vec2(180.0f, 20.0f), (backFanLocations[i] + 5.0f) / 10.0f, glassTextures[1], sliderKnobTexture);
+                drawSlider(textProgram, spriteVAO, spriteVBO, glm::vec2((SCR_WIDTH) - 100.0f, SCR_HEIGHT - lastSliderY), glm::vec2(180.0f, 20.0f), backFanLocations[i], glassTextures[1], sliderKnobTexture);
                 lastSliderY += 30;
             }
         }

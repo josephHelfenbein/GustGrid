@@ -142,8 +142,8 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
                 if(
                     yposFloat < checkboxYPositions[i]
                 &&  yposFloat > checkboxYPositions[i] - 20.0f
-                &&  xposFloat > SCR_WIDTH - 100.0f
-                &&  xposFloat < SCR_WIDTH - 80.0f) {
+                &&  xposFloat > SCR_WIDTH - 75.0f
+                &&  xposFloat < SCR_WIDTH - 55.0f) {
                     hoverElement = i;
                     hoveringElement = true;
                     break;
@@ -163,8 +163,8 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
             else if(
                 yposFloat > 30.0f
             &&  yposFloat < 50.0f
-            &&  xposFloat > SCR_WIDTH - 220.0f
-            &&  xposFloat < SCR_WIDTH - 200.0f) hoverElement = 6;
+            &&  xposFloat > SCR_WIDTH - 245.0f
+            &&  xposFloat < SCR_WIDTH - 225.0f) hoverElement = 6;
         } else if(
             yposFloat > 30.0f
         &&  yposFloat < 50.0f
@@ -175,11 +175,11 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
     }
     else if(showUI){
         for(int i=0; i<3; i++){
+            if(sliderYPositions[i] == 1.0) continue;
             float minValue = i==0 ? 0.0f : *sliderXValues[i-1] - 2.5f;
-            float maxValue = i==2 ? -5.0f : *sliderXValues[i+1] + 2.5f;
+            float maxValue = i==2 || *sliderXValues[i+1] == 1.0 ? -5.0f : *sliderXValues[i+1] + 2.5f;
             if(
-                sliderYPositions[i] != -1
-            &&  yposFloat < sliderYPositions[i]
+                yposFloat < sliderYPositions[i]
             &&  yposFloat > sliderYPositions[i] - 20.0f
             &&  xposFloat > SCR_WIDTH - 140.0f
             &&  xposFloat < SCR_WIDTH - 60.0f) {
@@ -222,6 +222,7 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
 void processInput(GLFWwindow* window){
     if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) glfwSetWindowShouldClose(window, true);
     else if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS){
+        if(!firstMouse) return;
         if(hoverElement != -1 && hoverElement < 4) *checkboxItems[hoverElement] = !(*checkboxItems[hoverElement]);
         else if(hoverElement == 4){
             int lastIndex = 0;
@@ -236,8 +237,13 @@ void processInput(GLFWwindow* window){
             if(*sliderXValues[1] == 1.0f) lastIndex = 0;
             *sliderXValues[lastIndex] = 1.0f;
         }
-        else if(hoverElement == 6) showUI = !showUI;
+        else if(hoverElement == 6) {
+            showUI = !showUI;
+            hoverElement = -1;
+        }
+        firstMouse = false;
     }
+    else if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_RELEASE) firstMouse = true;   
 }
 char* getShaders(const char* file){
     FILE* shaderFile = fopen(file, "r");
@@ -510,20 +516,20 @@ void drawArrowInput(unsigned int shader, unsigned int VAO, unsigned int VBO, glm
     glUniformMatrix4fv(glGetUniformLocation(shader, "projection"), 1, GL_FALSE, &arrowProj[0][0]);
     glUniform3f(glGetUniformLocation(shader, "tintColor"), 1.0f, 1.0f, 1.0f);
     glm::mat4 arrowModel = glm::mat4(1.0f);
-    arrowModel = glm::translate(arrowModel, glm::vec3(position.x, position.y, 0.0f));
-    arrowModel = glm::scale(arrowModel, glm::vec3(size.x, size.y, 1.0f));
+    arrowModel = glm::translate(arrowModel, glm::vec3(position.x, position.y + size.y / 2.0f, 0.0f));
+    arrowModel = glm::scale(arrowModel, glm::vec3(size.x, size.y / 2.0f, 1.0f));
     glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, &arrowModel[0][0]);
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, arrowUpTexture);
+    glBindTexture(GL_TEXTURE_2D, arrowDownTexture);
     glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glDrawArrays(GL_TRIANGLES, 0, 6);
-    arrowModel = glm::translate(arrowModel, glm::vec3(0.0f, -size.y * 2.0f, 0.0f));
+    arrowModel = glm::translate(arrowModel, glm::vec3(0.0f, -1.0f, 0.0f));
     glUniformMatrix4fv(glGetUniformLocation(shader, "model"), 1, GL_FALSE, &arrowModel[0][0]);
-    glActiveTexture(GL_TEXTURE1);
-    glBindTexture(GL_TEXTURE_2D, arrowDownTexture);
-    glUniform1i(glGetUniformLocation(shader, "image"), 1);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, arrowUpTexture);
+    glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
 int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations){
@@ -721,22 +727,25 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
 
         if(showUI){
             drawSprite(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH-245.0f, SCR_HEIGHT - 50.0f), glm::vec2(20.0f), glm::vec3(1.0f), uiCloseTexture);
-            drawText(textProgram, textVAO, textVBO, "Menu", glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 70.0f), 0.3f, glm::vec3(0.0f));
+            drawText(textProgram, textVAO, textVBO, "Menu", glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 70.0f), 0.4f, glm::vec3(0.0f));
             drawText(textProgram, textVAO, textVBO, "GPU Enabled", glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 100.0f), 0.3f, glm::vec3(0.0f));
-            drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 100.0f, SCR_HEIGHT - checkboxYPositions[0]), glm::vec2(20.0f), gpuEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
-            drawText(textProgram, textVAO, textVBO, gpuEnabled ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - 100.0f), 0.3f, glm::vec3(0.0f));
+            drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - checkboxYPositions[0]), glm::vec2(20.0f), gpuEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
+            drawText(textProgram, textVAO, textVBO, gpuEnabled ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 50.0f, SCR_HEIGHT - 100.0f), 0.3f, glm::vec3(0.0f));
             drawText(textProgram, textVAO, textVBO, "Top Fan Enabled", glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 130.0f), 0.3f, glm::vec3(0.0f));
-            drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 100.0f, SCR_HEIGHT - checkboxYPositions[1]), glm::vec2(20.0f), topFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
-            drawText(textProgram, textVAO, textVBO, topFanEnabled ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - 130.0f), 0.3f, glm::vec3(0.0f));
+            drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - checkboxYPositions[1]), glm::vec2(20.0f), topFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
+            drawText(textProgram, textVAO, textVBO, topFanEnabled ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 50.0f, SCR_HEIGHT - 130.0f), 0.3f, glm::vec3(0.0f));
             drawText(textProgram, textVAO, textVBO, "CPU Fan Enabled", glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 160.0f), 0.3f, glm::vec3(0.0f));
-            drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 100.0f, SCR_HEIGHT - checkboxYPositions[2]), glm::vec2(20.0f), cpuFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
-            drawText(textProgram, textVAO, textVBO, cpuFanEnabled ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - 160.0f), 0.3f, glm::vec3(0.0f));
+            drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - checkboxYPositions[2]), glm::vec2(20.0f), cpuFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
+            drawText(textProgram, textVAO, textVBO, cpuFanEnabled ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 50.0f, SCR_HEIGHT - 160.0f), 0.3f, glm::vec3(0.0f));
             drawText(textProgram, textVAO, textVBO, "Front Fan Enabled", glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 190.0f), 0.3f, glm::vec3(0.0f));
-            drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 100.0f, SCR_HEIGHT - checkboxYPositions[3]), glm::vec2(20.0f), frontFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
-            drawText(textProgram, textVAO, textVBO, frontFanEnabled ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - 190.0f), 0.3f, glm::vec3(0.0f));
+            drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - checkboxYPositions[3]), glm::vec2(20.0f), frontFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
+            drawText(textProgram, textVAO, textVBO, frontFanEnabled ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 50.0f, SCR_HEIGHT - 190.0f), 0.3f, glm::vec3(0.0f));
             char numberOfFans = '0';
             for(int i=0; i<3; i++) if(backFanLocations[i]<=0.0f) numberOfFans++;
-            const char backFanText[] = {'B', 'a', 'c', 'k', ' ', 'F', 'a', 'n', 's', ':', ' ', numberOfFans};
+            const char* backFanTextPrefix = "Back Fans: ";
+            char backFanText[13];
+            strcpy(backFanText, backFanTextPrefix);
+            backFanText[11] = numberOfFans;
             drawText(textProgram, textVAO, textVBO, backFanText, glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 220.0f), 0.3f, glm::vec3(0.0f));
             drawArrowInput(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 100.0f, SCR_HEIGHT - 220.0f), glm::vec2(20.0f), arrowUpTexture, arrowDownTexture);
             int lastSliderY = 250;
@@ -745,8 +754,11 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
                 if(backFanLocations[i]<=0.0f) {
                     char fanNumber = '0';
                     fanNumber += i + 1;
-                    const char fanText[] = {'F', 'a', 'n',  ' ', fanNumber, ':'};
-                    drawText(textProgram, textVAO, textVBO, fanText, glm::vec2(SCR_WIDTH - 180.0f, SCR_HEIGHT - lastSliderY), 0.3f, glm::vec3(0.0f));
+                    const char* fanTextPrefix = "Fan  :";
+                    char fanText[7];
+                    strcpy(fanText, fanTextPrefix);
+                    fanText[4] = fanNumber;
+                    drawText(textProgram, textVAO, textVBO, fanText, glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - lastSliderY), 0.3f, glm::vec3(0.0f));
                     drawSlider(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 140.0f, SCR_HEIGHT - lastSliderY), glm::vec2(80.0f, 20.0f), backFanLocations[i], glassTextures[2], sliderKnobTexture);
                     sliderYPositions[existingSliders++] = lastSliderY;
                     lastSliderY += 30;

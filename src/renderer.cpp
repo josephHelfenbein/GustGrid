@@ -11,6 +11,7 @@
 #include FT_FREETYPE_H
 #include <map>
 #include <vector>
+#include <functional>
 
 #define uiVertexPath "./src/shaders/ui.vert"
 #define uiFragmentPath "./src/shaders/ui.frag"
@@ -41,6 +42,18 @@
 #define vertexShaderPath "./src/shaders/main.vert"
 #define fragmentShaderPath "./src/shaders/main.frag"
 #define PI 3.14159265358979323846f
+#define worldMinX -2.0f
+#define worldMaxX 2.0f
+#define worldMinY -4.5f
+#define worldMaxY 4.5f
+#define worldMinZ -4.0f
+#define worldMaxZ 4.0f
+#define renderMinX -1.65f
+#define renderMaxX 1.7f
+#define renderMinY -3.0f
+#define renderMaxY 4.22f
+#define renderMinZ -3.4f
+#define renderMaxZ 3.4f
 
 unsigned int SCR_WIDTH = 800;
 unsigned int SCR_HEIGHT = 600;
@@ -59,6 +72,7 @@ float lastMouseY = SCR_HEIGHT / 2.0f;
 float mouseSensitivity = 0.007f;
 bool showUI = true;
 bool* itemChangedPtr = nullptr;
+bool* runningPtr = nullptr;
 
 std::vector<unsigned int> VAOs;
 std::vector<unsigned int> buffers;
@@ -224,7 +238,10 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
     camPos = glm::vec3(sin(camYaw) * camRadius, sin(camPitch) * camRadius, cos(camYaw) * camRadius);
 }
 void processInput(GLFWwindow* window){
-    if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) glfwSetWindowShouldClose(window, true);
+    if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
+        *runningPtr = false;
+        glfwSetWindowShouldClose(window, true);
+    }
     else if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS){
         if(!firstMouse) return;
         if(hoverElement == -1) return;
@@ -538,14 +555,14 @@ void drawArrowInput(unsigned int shader, unsigned int VAO, unsigned int VBO, glm
     glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
-int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations, float* velocityField, bool& itemChanged){
+int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations, float* velocityField, bool& itemChanged, bool& running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
         return -1;
     }
     glfwWindowHint(GLFW_SAMPLES, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     GLFWwindow* window;
@@ -683,8 +700,14 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     glBindTexture(GL_TEXTURE_3D, 0);
     unsigned int volumeVAO, volumeVBO;
     float cubeVertex[] = {
-        -1, -1, -1,  1, -1, -1,  1, 1, -1,  -1, 1, -1,
-        -1, -1, 1,  1, -1, 1,  1, 1, 1,  -1, 1, 1
+        renderMinX, renderMinY, renderMinZ,
+        renderMaxX, renderMinY, renderMinZ,
+        renderMaxX, renderMaxY, renderMinZ,
+        renderMinX, renderMaxY, renderMinZ,
+        renderMinX, renderMinY, renderMaxZ,
+        renderMaxX, renderMinY, renderMaxZ,
+        renderMaxX, renderMaxY, renderMaxZ,
+        renderMinX, renderMaxY, renderMaxZ
     };
     unsigned int cubeIndices[] = {
         0, 1, 2,  2, 3, 0,
@@ -722,11 +745,15 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     for(int i=0; i<3; i++) sliderXValues[i] = &backFanLocations[i];
 
     itemChangedPtr = &itemChanged;
+    runningPtr = &running;
 
     char* vertexShaderSource = getShaders(vertexShaderPath);
     char* fragmentShaderSource = getShaders(fragmentShaderPath);
     unsigned int shaderProgram = createShader(vertexShaderSource, fragmentShaderSource);
-    
+
+    signalItemsReady();
+    waitForVelocityField();
+
     while(!glfwWindowShouldClose(window)){
         float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
@@ -737,12 +764,27 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_BLEND);
-        glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDisable(GL_CULL_FACE);
         glm::mat4 projection = glm::perspective(glm::radians(camFOV), (float) SCR_WIDTH / (float) SCR_HEIGHT, 0.1f, 100.0f);
         glm::mat4 view = glm::lookAt(camPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         glm::mat4 model = glm::mat4(1.0f);
 
+        glUseProgram(shaderProgram);
+
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, &projection[0][0]);
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "camPos"), 1, &camPos[0]);
+        glUniform1i(glGetUniformLocation(shaderProgram, "isEmissive"), 0);
+
+        if(gpuEnabled) drawObject(gpuTextures, shaderProgram, gpuVAO, gpuIndexCount);
+        drawObject(cpuTextures, shaderProgram, cpuVAO, cpuIndexCount);
+        drawObject(ramTextures, shaderProgram, ramVAO, ramIndexCount);
+        drawObject(motherboardTextures, shaderProgram, motherboardVAO, motherboardIndexCount);
+        drawObject(psuTextures, shaderProgram, psuVAO, psuIndexCount);
+        drawObject(ioShieldTextures, shaderProgram, ioShieldVAO, ioShieldIndexCount);
+        
         static std::vector<float> speedData(128 * 128 * 128);
         for(int z=0; z<128; z++){
             for(int y=0; y<128; y++){
@@ -758,14 +800,20 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glBindTexture(GL_TEXTURE_3D, volumeTex3D);
         glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 128, 128, 128, GL_RED, GL_FLOAT, speedData.data());
         glBindTexture(GL_TEXTURE_3D, 0);
+
         glUseProgram(volumeShaderProgram);
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, &projection[0][0]);
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, &view[0][0]);
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
-        glUniform3fv(glGetUniformLocation(shaderProgram, "camPos"), 1, &camPos[0]);
-        glUniform1i(glGetUniformLocation(shaderProgram, "volumeTex"), 0);
-        glUniform3f(glGetUniformLocation(shaderProgram, "gridSize"), 128.0f, 128.0f, 128.0f);
-        glUniform1f(glGetUniformLocation(shaderProgram, "stepSize"), 1.0 / 128.0f);
+
+        glUniformMatrix4fv(glGetUniformLocation(volumeShaderProgram, "projection"), 1, GL_FALSE, &projection[0][0]);
+        glUniformMatrix4fv(glGetUniformLocation(volumeShaderProgram, "view"), 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv(glGetUniformLocation(volumeShaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
+        glUniform3fv(glGetUniformLocation(volumeShaderProgram, "camPos"), 1, &camPos[0]);
+        glUniform1i(glGetUniformLocation(volumeShaderProgram, "volumeTex"), 0);
+        glUniform3f(glGetUniformLocation(volumeShaderProgram, "gridSize"), 128.0f, 128.0f, 128.0f);
+        glUniform1f(glGetUniformLocation(volumeShaderProgram, "stepSize"), 1.0 / 128.0f);
+
+        glUniform3f(glGetUniformLocation(volumeShaderProgram, "worldMin"), worldMinX, worldMinY, worldMinZ);
+        glUniform3f(glGetUniformLocation(volumeShaderProgram, "worldMax"), worldMaxX, worldMaxY, worldMaxZ);
+
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_3D, volumeTex3D);
         glBindVertexArray(volumeVAO);
@@ -774,13 +822,6 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
 
         glUseProgram(shaderProgram);
 
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, &projection[0][0]);
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, &view[0][0]);
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
-        glUniform3fv(glGetUniformLocation(shaderProgram, "camPos"), 1, &camPos[0]);
-        glUniform1i(glGetUniformLocation(shaderProgram, "isEmissive"), 0);
-        
-        if(gpuEnabled) drawObject(gpuTextures, shaderProgram, gpuVAO, gpuIndexCount);
         if(topFanEnabled) drawObject(caseTextures, shaderProgram, topFanVAO, topFanIndexCount);
         if(frontFanEnabled) drawObject(caseTextures, shaderProgram, frontFanVAO, frontFanIndexCount);
 
@@ -794,12 +835,7 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
 
         if(cpuFanEnabled) drawObject(caseTextures, shaderProgram, cpuFanVAO, cpuFanIndexCount);
-
-        drawObject(cpuTextures, shaderProgram, cpuVAO, cpuIndexCount);
-        drawObject(ramTextures, shaderProgram, ramVAO, ramIndexCount);
-        drawObject(motherboardTextures, shaderProgram, motherboardVAO, motherboardIndexCount);
-        drawObject(psuTextures, shaderProgram, psuVAO, psuIndexCount);
-        drawObject(ioShieldTextures, shaderProgram, ioShieldVAO, ioShieldIndexCount);
+        
         drawObject(caseTextures, shaderProgram, caseVAO, caseIndexCount);
         drawObject(shieldTextures, shaderProgram, shieldVAO, shieldIndexCount);
         drawObject(glassTextures, shaderProgram, glassVAO, glassIndexCount);

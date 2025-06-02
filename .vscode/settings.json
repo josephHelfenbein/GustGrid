@@ -75,6 +75,8 @@
         "deque": "cpp",
         "forward_list": "cpp",
         "queue": "cpp",
-        "stack": "cpp"
+        "stack": "cpp",
+        "condition_variable": "cpp",
+        "regex": "cpp"
     }
 }

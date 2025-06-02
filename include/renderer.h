@@ -1,6 +1,3 @@
-#ifndef RENDERER_H
-#define RENDERER_H
+#include <functional>
 
-int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool& cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, bool& itemChanged);
-
-#endif
+int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool& cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, bool& itemChanged, bool& running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady);

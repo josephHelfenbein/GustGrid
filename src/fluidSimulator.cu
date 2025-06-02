@@ -70,7 +70,7 @@ extern "C" void runFluidSimulation(
     }
 }
 
-static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
+__host__ __device__ static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
     return x + y * gridSizeX + z * gridSizeX * gridSizeY;
 }
 
@@ -86,13 +86,12 @@ static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
 constexpr int gridSizeX = 128;
 constexpr int gridSizeY = 128;
 constexpr int gridSizeZ = 128;
-constexpr int numCells = (gridSizeX * gridSizeY * gridSizeZ);
-constexpr float worldMinX = -4.0f;
-constexpr float worldMaxX = 4.0f;
-constexpr float worldMinY = 0.0f;
-constexpr float worldMaxY = 9.0f;
-constexpr float worldMinZ = -2.0f;
-constexpr float worldMaxZ = +2.0f;
+constexpr float worldMinX = -2.0f;
+constexpr float worldMaxX = 2.0f;
+constexpr float worldMinY = -4.5f;
+constexpr float worldMaxY = 4.5f;
+constexpr float worldMinZ = -4.0f;
+constexpr float worldMaxZ = 4.0f;
 
 constexpr float cellSizeX = (worldMaxX - worldMinX) / gridSizeX;
 constexpr float cellSizeY = (worldMaxY - worldMinY) / gridSizeY;
@@ -128,11 +127,10 @@ __global__ void addFanForcesKernel(
         float dy = worldY - fanPosition.y;
         float dz = worldZ - fanPosition.z;
         float distSq = dx * dx + dy * dy + dz * dz + 1e-3f;
-        float invDist = rsqrtf(distSq);
         float forceMagnitude = 1.0f / distSq;
-        accum.x += dx * forceMagnitude * invDist;
-        accum.y += dy * forceMagnitude * invDist;
-        accum.z += dz * forceMagnitude * invDist;
+        accum.x += fanDirection.x * forceMagnitude;
+        accum.y += fanDirection.y * forceMagnitude;
+        accum.z += fanDirection.z * forceMagnitude;
     }
     velocity[idx * 3 + 0] += accum.x;
     velocity[idx * 3 + 1] += accum.y;
@@ -163,9 +161,9 @@ __global__ void advectVelocityKernel(
     float x0 = i - vx * dt / cellSizeX;
     float y0 = j - vy * dt / cellSizeY;
     float z0 = k - vz * dt / cellSizeZ;
-    x0 fminf(fmaxf(x0, 0.0f), GX - 1.0f);
-    y0 fminf(fmaxf(y0, 0.0f), GY - 1.0f);
-    z0 fminf(fmaxf(z0, 0.0f), GZ - 1.0f);
+    x0 = fminf(fmaxf(x0, 0.0f), GX - 1.0f);
+    y0 = fminf(fmaxf(y0, 0.0f), GY - 1.0f);
+    z0 = fminf(fmaxf(z0, 0.0f), GZ - 1.0f);
     int xi = int(roundf(x0));
     int yi = int(roundf(y0));
     int zi = int(roundf(z0));

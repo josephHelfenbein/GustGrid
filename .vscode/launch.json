@@ -2,7 +2,7 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Linux Debug (g++)",
+            "name": "Linux Debug (CMake)",
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/gustgrid",
@@ -12,11 +12,10 @@
             "environment": [],
             "externalConsole": false,
             "MIMode": "gdb",
-            "preLaunchTask": "Build Linux Executable",
+            "preLaunchTask": "CMake Configure + Build",
             "miDebuggerPath": "/usr/bin/gdb",
-            "miDebuggerArgs": "",
             "logging": {
-                "engineLogging": true,
+                "engineLogging": true
             },
             "setupCommands": [
                 {
@@ -24,7 +23,7 @@
                     "text": "-enable-pretty-printing",
                     "ignoreFailures": true
                 }
-            ],
+            ]
         }
     ]
 }

@@ -3,23 +3,28 @@
     "tasks": [
         {
             "type": "shell",
-            "label": "Build Linux Executable",
-            "command": "g++",
+            "label": "CMake Configure",
+            "command": "cmake",
             "args": [
-                "-g",
-                "-std=c++17",
-                "-I${workspaceFolder}/include",
-                "-I${workspaceFolder}/include/freetype/include",
-                "-L${workspaceFolder}/lib",
-                "${workspaceFolder}/src/main.cpp",
-                "${workspaceFolder}/src/renderer.cpp",
-                "${workspaceFolder}/src/glad.c",
-                "-lfreetype",
-                "-lglfw",
-                "-ldl",
-                "-lm",
-                "-o",
-                "${workspaceFolder}/bin/gustgrid"
+                "-B",
+                "build",
+                "-DCMAKE_BUILD_TYPE=Debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "type": "shell",
+            "label": "CMake Build",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "build",
+                "--config",
+                "Debug"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -28,7 +33,35 @@
                 "kind": "build",
                 "isDefault": true
             },
-            "problemMatcher": ["$gcc"],
+            "dependsOn": "CMake Configure",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "type": "shell",
+            "label": "CMake Clean",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "build",
+                "--target",
+                "clean"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake Configure + Build",
+            "command": "cmake",
+            "dependsOn": [
+                "CMake Configure",
+                "CMake Build"
+            ],
+            "dependsOrder": "sequence",
+            "group": "build",
+            "problemMatcher": []
         }
     ]
 }

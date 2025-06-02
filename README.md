@@ -141,8 +141,6 @@ Distributed under the MIT License. See `LICENSE.txt` for more information.
 [Laravel-url]: https://laravel.com
 [Bootstrap.com]: https://img.shields.io/badge/Bootstrap-563D7C?style=for-the-badge&logo=bootstrap&logoColor=white
 [Bootstrap-url]: https://getbootstrap.com
-[JQuery.com]: ?style=for-the-badge&logo=jquery&logoColor=whitehttps://img.shields.io/badge/jQuery-0769AD
-[JQuery-url]: https://jquery.com 
 [C++]: https://img.shields.io/badge/c++-00599C?logo=cplusplus&style=for-the-badge&logoColor=white
 [c++-url]: https://developer.oracle.com/languages/javascript.html
 [OpenGL]: https://img.shields.io/badge/opengl-5586A4?logo=opengl&style=for-the-badge&logoColor=white

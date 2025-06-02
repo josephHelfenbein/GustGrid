@@ -67,6 +67,14 @@
         "__verbose_abort": "cpp",
         "execution": "cpp",
         "ios": "cpp",
-        "locale": "cpp"
+        "locale": "cpp",
+        "__hash_table": "cpp",
+        "__node_handle": "cpp",
+        "__tree": "cpp",
+        "clocale": "cpp",
+        "deque": "cpp",
+        "forward_list": "cpp",
+        "queue": "cpp",
+        "stack": "cpp"
     }
 }

@@ -36,6 +36,8 @@
 #define frontFanSource "./src/models/frontfan.obj"
 #define backFanSource "./src/models/backfan.obj"
 #define cpuFanSource "./src/models/cpufan.obj"
+#define volumeVertexShaderPath "./src/shaders/volume.vert"
+#define volumeFragmentShaderPath "./src/shaders/volume.frag"
 #define vertexShaderPath "./src/shaders/main.vert"
 #define fragmentShaderPath "./src/shaders/main.frag"
 #define PI 3.14159265358979323846f
@@ -56,6 +58,7 @@ float lastMouseX = SCR_WIDTH / 2.0f;
 float lastMouseY = SCR_HEIGHT / 2.0f;
 float mouseSensitivity = 0.007f;
 bool showUI = true;
+bool* itemChangedPtr = nullptr;
 
 std::vector<unsigned int> VAOs;
 std::vector<unsigned int> buffers;
@@ -187,6 +190,7 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
                 if(possibleSliderXValues[i] > minValue) possibleSliderXValues[i] = minValue;
                 else if(possibleSliderXValues[i] < maxValue) possibleSliderXValues[i] = maxValue;
                 *sliderXValues[i] = possibleSliderXValues[i];
+                *itemChangedPtr = true;
                 return;
             }
             else possibleSliderXValues[i] = *sliderXValues[i];
@@ -223,7 +227,8 @@ void processInput(GLFWwindow* window){
     if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) glfwSetWindowShouldClose(window, true);
     else if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS){
         if(!firstMouse) return;
-        if(hoverElement != -1 && hoverElement < 4) *checkboxItems[hoverElement] = !(*checkboxItems[hoverElement]);
+        if(hoverElement == -1) return;
+        if(hoverElement < 4) *checkboxItems[hoverElement] = !(*checkboxItems[hoverElement]);
         else if(hoverElement == 4){
             int lastIndex = 0;
             if(*sliderXValues[0] != 1.0f) lastIndex = 1;
@@ -242,6 +247,7 @@ void processInput(GLFWwindow* window){
             hoverElement = -1;
         }
         firstMouse = false;
+        *itemChangedPtr = true;
     }
     else if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_RELEASE) firstMouse = true;   
 }
@@ -532,7 +538,7 @@ void drawArrowInput(unsigned int shader, unsigned int VAO, unsigned int VBO, glm
     glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
-int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations){
+int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations, float* velocityField, bool& itemChanged){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
         return -1;
@@ -663,12 +669,59 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     unsigned int uiCloseTexture = loadTexture(uiCloseSource);
     unsigned int uiOpenTexture = loadTexture(uiOpenSource);
 
+    unsigned int volumeTex3D;
+    glGenTextures(1, &volumeTex3D);
+    glBindTexture(GL_TEXTURE_3D, volumeTex3D);
+    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, 128, 128, 128);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    float borderColor[] = {0.0f, 0.0f, 0.0f, 1.0f};
+    glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    glBindTexture(GL_TEXTURE_3D, 0);
+    unsigned int volumeVAO, volumeVBO;
+    float cubeVertex[] = {
+        -1, -1, -1,  1, -1, -1,  1, 1, -1,  -1, 1, -1,
+        -1, -1, 1,  1, -1, 1,  1, 1, 1,  -1, 1, 1
+    };
+    unsigned int cubeIndices[] = {
+        0, 1, 2,  2, 3, 0,
+        4, 5, 6,  6, 7, 4,
+        0, 4, 7,  7, 3, 0,
+        1, 5, 6,  6, 2, 1,
+        0, 1, 5,  5, 4, 0,
+        3, 2, 6,  6, 7, 3
+    };
+    glGenVertexArrays(1, &volumeVAO);
+    glBindVertexArray(volumeVAO);
+    unsigned int posVBO = 0, idxEBO = 0;
+    glGenBuffers(1, &posVBO);
+    glBindBuffer(GL_ARRAY_BUFFER, posVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertex), cubeVertex, GL_STATIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*) 0);
+    glGenBuffers(1, &idxEBO);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, idxEBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cubeIndices), cubeIndices, GL_STATIC_DRAW);
+    glBindVertexArray(0);
+    char* vertexVolumeShaderSource = getShaders(volumeVertexShaderPath);
+    char* fragmentVolumeShaderSource = getShaders(volumeFragmentShaderPath);
+    unsigned int volumeShaderProgram = createShader(vertexVolumeShaderSource, fragmentVolumeShaderSource);
+    VAOs.push_back(volumeVAO);
+    buffers.push_back(volumeVBO);
+    buffers.push_back(idxEBO);
+    buffers.push_back(posVBO);
+
     checkboxItems[0] = &gpuEnabled;
     checkboxItems[1] = &topFanEnabled;
     checkboxItems[2] = &cpuFanEnabled;
     checkboxItems[3] = &frontFanEnabled;
 
     for(int i=0; i<3; i++) sliderXValues[i] = &backFanLocations[i];
+
+    itemChangedPtr = &itemChanged;
 
     char* vertexShaderSource = getShaders(vertexShaderPath);
     char* fragmentShaderSource = getShaders(fragmentShaderPath);
@@ -683,22 +736,48 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glClearColor(0.1f, 0.1f, 0.25f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         glEnable(GL_DEPTH_TEST);
-
-        glUseProgram(shaderProgram);
         glEnable(GL_BLEND);
         glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-
+        glDisable(GL_CULL_FACE);
         glm::mat4 projection = glm::perspective(glm::radians(camFOV), (float) SCR_WIDTH / (float) SCR_HEIGHT, 0.1f, 100.0f);
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, &projection[0][0]);
-
         glm::mat4 view = glm::lookAt(camPos, glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, &view[0][0]);
-
-        glUniform3fv(glGetUniformLocation(shaderProgram, "camPos"), 1, &camPos[0]);
-
         glm::mat4 model = glm::mat4(1.0f);
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
 
+        static std::vector<float> speedData(128 * 128 * 128);
+        for(int z=0; z<128; z++){
+            for(int y=0; y<128; y++){
+                for(int x=0; x<128; x++){
+                    int index = z * 128 * 128 + y * 128 + x;
+                    float vx = velocityField[index * 3 + 0];
+                    float vy = velocityField[index * 3 + 1];
+                    float vz = velocityField[index * 3 + 2];
+                    speedData[index] = sqrt(vx * vx + vy * vy + vz * vz);
+                }
+            }
+        }
+        glBindTexture(GL_TEXTURE_3D, volumeTex3D);
+        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 128, 128, 128, GL_RED, GL_FLOAT, speedData.data());
+        glBindTexture(GL_TEXTURE_3D, 0);
+        glUseProgram(volumeShaderProgram);
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, &projection[0][0]);
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "camPos"), 1, &camPos[0]);
+        glUniform1i(glGetUniformLocation(shaderProgram, "volumeTex"), 0);
+        glUniform3f(glGetUniformLocation(shaderProgram, "gridSize"), 128.0f, 128.0f, 128.0f);
+        glUniform1f(glGetUniformLocation(shaderProgram, "stepSize"), 1.0 / 128.0f);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_3D, volumeTex3D);
+        glBindVertexArray(volumeVAO);
+        glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
+        glBindVertexArray(0);
+
+        glUseProgram(shaderProgram);
+
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "projection"), 1, GL_FALSE, &projection[0][0]);
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "view"), 1, GL_FALSE, &view[0][0]);
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
+        glUniform3fv(glGetUniformLocation(shaderProgram, "camPos"), 1, &camPos[0]);
         glUniform1i(glGetUniformLocation(shaderProgram, "isEmissive"), 0);
         
         if(gpuEnabled) drawObject(gpuTextures, shaderProgram, gpuVAO, gpuIndexCount);

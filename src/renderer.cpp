@@ -555,7 +555,7 @@ void drawArrowInput(unsigned int shader, unsigned int VAO, unsigned int VBO, glm
     glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
-int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations, float* velocityField, bool& itemChanged, bool& running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady){
+int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool& itemChanged, bool& running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
         return -1;
@@ -686,9 +686,9 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     unsigned int uiCloseTexture = loadTexture(uiCloseSource);
     unsigned int uiOpenTexture = loadTexture(uiOpenSource);
 
-    unsigned int volumeTex3D;
-    glGenTextures(1, &volumeTex3D);
-    glBindTexture(GL_TEXTURE_3D, volumeTex3D);
+    unsigned int volumeVelocity3D;
+    glGenTextures(1, &volumeVelocity3D);
+    glBindTexture(GL_TEXTURE_3D, volumeVelocity3D);
     glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, 128, 128, 128);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
@@ -696,6 +696,16 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
     float borderColor[] = {0.0f, 0.0f, 0.0f, 1.0f};
+    glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    unsigned int volumePressure3D;
+    glGenTextures(1, &volumePressure3D);
+    glBindTexture(GL_TEXTURE_3D, volumePressure3D);
+    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, 128, 128, 128);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
     glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, borderColor);
     glBindTexture(GL_TEXTURE_3D, 0);
     unsigned int volumeVAO, volumeVBO;
@@ -754,11 +764,13 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     signalItemsReady();
     waitForVelocityField();
 
+    float dt = 1.0f / 60.0f; // 60 FPS limit
     while(!glfwWindowShouldClose(window)){
         float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
-        lastFrame = currentFrame;
         processInput(window);
+        if(deltaTime < dt) continue;
+        lastFrame = currentFrame;
 
         glClearColor(0.1f, 0.1f, 0.25f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -784,6 +796,7 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         drawObject(motherboardTextures, shaderProgram, motherboardVAO, motherboardIndexCount);
         drawObject(psuTextures, shaderProgram, psuVAO, psuIndexCount);
         drawObject(ioShieldTextures, shaderProgram, ioShieldVAO, ioShieldIndexCount);
+        if(cpuFanEnabled) drawObject(caseTextures, shaderProgram, cpuFanVAO, cpuFanIndexCount);
         
         static std::vector<float> speedData(128 * 128 * 128);
         for(int z=0; z<128; z++){
@@ -797,8 +810,22 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
                 }
             }
         }
-        glBindTexture(GL_TEXTURE_3D, volumeTex3D);
+        glBindTexture(GL_TEXTURE_3D, volumeVelocity3D);
         glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 128, 128, 128, GL_RED, GL_FLOAT, speedData.data());
+        static std::vector<float> pressureData(128 * 128 * 128);
+        for(int z=0; z<128; z++){
+            for(int y=0; y<128; y++){
+                for(int x=0; x<128; x++){
+                    int index = z * 128 * 128 + y * 128 + x;
+                    float vx = velocityField[index * 3 + 0];
+                    float vy = velocityField[index * 3 + 1];
+                    float vz = velocityField[index * 3 + 2];
+                    pressureData[index] = sqrt(vx * vx + vy * vy + vz * vz);
+                }
+            }
+        }
+        glBindTexture(GL_TEXTURE_3D, volumePressure3D);
+        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 128, 128, 128, GL_RED, GL_FLOAT, pressureData.data());
         glBindTexture(GL_TEXTURE_3D, 0);
 
         glUseProgram(volumeShaderProgram);
@@ -807,7 +834,8 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glUniformMatrix4fv(glGetUniformLocation(volumeShaderProgram, "view"), 1, GL_FALSE, &view[0][0]);
         glUniformMatrix4fv(glGetUniformLocation(volumeShaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
         glUniform3fv(glGetUniformLocation(volumeShaderProgram, "camPos"), 1, &camPos[0]);
-        glUniform1i(glGetUniformLocation(volumeShaderProgram, "volumeTex"), 0);
+        glUniform1i(glGetUniformLocation(volumeShaderProgram, "velocityTex"), 0);
+        glUniform1i(glGetUniformLocation(volumeShaderProgram, "pressureTex"), 1);
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "gridSize"), 128.0f, 128.0f, 128.0f);
         glUniform1f(glGetUniformLocation(volumeShaderProgram, "stepSize"), 1.0 / 128.0f);
 
@@ -815,7 +843,9 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "worldMax"), worldMaxX, worldMaxY, worldMaxZ);
 
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_3D, volumeTex3D);
+        glBindTexture(GL_TEXTURE_3D, volumeVelocity3D);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_3D, volumePressure3D);
         glBindVertexArray(volumeVAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
@@ -833,8 +863,6 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
             drawObject(caseTextures, shaderProgram, backFanVAO, backFanIndexCount);
         }
         glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
-
-        if(cpuFanEnabled) drawObject(caseTextures, shaderProgram, cpuFanVAO, cpuFanIndexCount);
         
         drawObject(caseTextures, shaderProgram, caseVAO, caseIndexCount);
         drawObject(shieldTextures, shaderProgram, shieldVAO, shieldIndexCount);

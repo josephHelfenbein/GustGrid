@@ -8,6 +8,7 @@
 extern void runFluidSimulation(
     int gridSizeX, int gridSizeY, int gridSizeZ,
     float* d_velocityField,
+    float* d_pressureField,
     unsigned char* d_solidGrid,
     float3* d_fanPositions,
     float3* d_fanDirections,
@@ -33,27 +34,31 @@ static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
 #define gridSizeZ 128
 const int numCells = (gridSizeX * gridSizeY * gridSizeZ);
 
-int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool& cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, bool& itemChanged, bool& running, std::function<void()> signalVelocityFieldReady, std::function<void()> waitForItems){
+int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool& cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool& itemChanged, bool& running, std::function<void()> signalVelocityFieldReady, std::function<void()> waitForItems){
     waitForItems();
     std::vector<unsigned char> h_solidGrid(numCells, 0);
     std::vector<float3> h_fanPositions;
     std::vector<float3> h_fanDirections;
-    h_fanPositions.reserve(1 + 1 + 2 + 3);
-    h_fanDirections.reserve(1 + 1 + 2 + 3);
+    int maxFanCount = 1 + 1 + 1 + 2 + 3;
+    h_fanPositions.reserve(maxFanCount);
+    h_fanDirections.reserve(maxFanCount);
     float3* d_fanPositions = nullptr;
     float3* d_fanDirections = nullptr;
     float* d_velocityField = nullptr;
+    float* d_pressureField = nullptr;
     unsigned char* d_solidGrid = nullptr;
     size_t solidGridSize = numCells * sizeof(unsigned char);
     size_t velocityFieldSize = numCells * sizeof(float) * 3;
-    int maxFanCount = 1 + 1 + 2 + 3;
     std::vector<float> h_velocity(numCells * 3, 0.0f);
+    std::vector<float> h_pressure(numCells * 3, 0.0f);
     size_t fanPositionsSize = maxFanCount * sizeof(float3);
     size_t fanDirectionsSize = maxFanCount * sizeof(float3);
     int numFans = 0;
 
     CUDA_CHECK(cudaMalloc(&d_velocityField, velocityFieldSize));
     CUDA_CHECK(cudaMemset(d_velocityField, 0, velocityFieldSize));
+    CUDA_CHECK(cudaMalloc(&d_pressureField, velocityFieldSize));
+    CUDA_CHECK(cudaMemset(d_pressureField, 0, velocityFieldSize));
 
     CUDA_CHECK(cudaMalloc(&d_solidGrid, solidGridSize));
 
@@ -145,8 +150,23 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool& cpuFanEnabled, b
     bool prevCpuFanEnabled = cpuFanEnabled;
     bool prevFrontFanEnabled = frontFanEnabled;
     float prevBackFanLocations[3] = {backFanLocations[0], backFanLocations[1], backFanLocations[2]};
-    float dt = 0.01667f;
-    bool firstTime = true;
+    float dt = 1 / 60.0f; // 60 FPS limit
+    int numIterations = 0;
+    runFluidSimulation(
+        gridSizeX, gridSizeY, gridSizeZ,
+        d_velocityField,
+        d_pressureField,
+        d_solidGrid,
+        d_fanPositions,
+        d_fanDirections,
+        numFans,
+        dt
+    );
+    CUDA_CHECK(cudaMemcpy(h_velocity.data(), d_velocityField, velocityFieldSize, cudaMemcpyDeviceToHost));
+    std::memcpy(velocityField, h_velocity.data(), sizeof(float) * 3 * numCells);
+    CUDA_CHECK(cudaMemcpy(h_pressure.data(), d_pressureField, velocityFieldSize, cudaMemcpyDeviceToHost));
+    std::memcpy(pressureField, h_pressure.data(), sizeof(float) * 3 * numCells);
+    signalVelocityFieldReady();
     while(running){
         if(itemChanged)
         if(!gpuEnabled || !prevGpuEnabled || !topFanEnabled || !prevTopFanEnabled || !cpuFanEnabled || !prevCpuFanEnabled || !frontFanEnabled || !prevFrontFanEnabled
@@ -163,6 +183,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool& cpuFanEnabled, b
         runFluidSimulation(
             gridSizeX, gridSizeY, gridSizeZ,
             d_velocityField,
+            d_pressureField,
             d_solidGrid,
             d_fanPositions,
             d_fanDirections,
@@ -171,12 +192,11 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool& cpuFanEnabled, b
         );
         CUDA_CHECK(cudaMemcpy(h_velocity.data(), d_velocityField, velocityFieldSize, cudaMemcpyDeviceToHost));
         std::memcpy(velocityField, h_velocity.data(), sizeof(float) * 3 * numCells);
-        if(firstTime){
-            firstTime = false;
-            signalVelocityFieldReady();
-        }
+        CUDA_CHECK(cudaMemcpy(h_pressure.data(), d_pressureField, velocityFieldSize, cudaMemcpyDeviceToHost));
+        std::memcpy(pressureField, h_pressure.data(), sizeof(float) * 3 * numCells);
     }
     CUDA_CHECK(cudaFree(d_velocityField));
+    CUDA_CHECK(cudaFree(d_pressureField));
     CUDA_CHECK(cudaFree(d_solidGrid));
     CUDA_CHECK(cudaFree(d_fanPositions));
     CUDA_CHECK(cudaFree(d_fanDirections));

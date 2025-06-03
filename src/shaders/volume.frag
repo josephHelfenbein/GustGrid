@@ -4,7 +4,8 @@ in vec3 FragPos;
 in vec3 texCoord;
 out vec4 FragColor;
 
-uniform sampler3D volumeTex;
+uniform sampler3D velocityTex;
+uniform sampler3D pressureTex;
 uniform vec3 camPos;
 uniform vec3 gridSize;
 uniform float stepSize;
@@ -18,7 +19,9 @@ void main(){
 
     vec3 worldSize = worldMax - worldMin;
     vec3 voxelSize = worldSize / gridSize;
-    float worldStep = float(voxelSize) * stepSize;
+
+    float minVoxelDim = min(min(voxelSize.x, voxelSize.y), voxelSize.z);
+    float worldStep = minVoxelDim * stepSize;
     vec3 currentWorldPos = FragPos;
     vec3 currentTexCoord = texCoord;
 
@@ -27,11 +30,12 @@ void main(){
     for(int i = 0; i < maxSteps; i++){
         if(any(lessThan(currentTexCoord, vec3(0.0))) || any(greaterThan(currentTexCoord, vec3(1.0)))) break;
         
-        float val = texture(volumeTex, currentTexCoord).r;
-        float density = clamp(val * 0.5, 0.0, 1.0);
-        float a = density * stepSize;
+        float pressureVal = texture(pressureTex, currentTexCoord).r;
+        float velocityVal = texture(velocityTex, currentTexCoord).r;
+        float a = clamp(velocityVal * stepSize * 0.001, 0.0, 1.0);
+        float col = clamp(pressureVal * 0.00005, 0.0, 1.0);
         
-        accumColor += (1.0 - accumAlpha) * a * density;
+        accumColor += (1.0 - accumAlpha) * col;
         accumAlpha += (1.0 - accumAlpha) * a;
         
         if(accumAlpha > 0.95) break;

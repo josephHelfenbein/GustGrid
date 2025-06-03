@@ -33,7 +33,7 @@ void main(){
         float pressureVal = texture(pressureTex, currentTexCoord).r;
         float velocityVal = texture(velocityTex, currentTexCoord).r;
         float a = clamp(velocityVal * stepSize * 0.001, 0.0, 1.0);
-        float col = clamp(pressureVal * 0.00005, 0.0, 1.0);
+        float col = clamp(pressureVal * 0.00001, 0.0, 1.0);
         
         accumColor += (1.0 - accumAlpha) * col;
         accumAlpha += (1.0 - accumAlpha) * a;

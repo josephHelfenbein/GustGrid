@@ -11,7 +11,7 @@
 #include FT_FREETYPE_H
 #include <map>
 #include <vector>
-#include <functional>
+#include <thread>
 
 #define uiVertexPath "./src/shaders/ui.vert"
 #define uiFragmentPath "./src/shaders/ui.frag"
@@ -316,44 +316,56 @@ unsigned int createShader(const char* vertSource, const char* fragSource){
     glDeleteShader(fragmentShader);
     return shaderProgram;
 }
-void loadModel(const char* file, unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, unsigned int &indexCount){
-    VAOs.push_back(VAO);
-    buffers.push_back(VBO);
-    buffers.push_back(EBO);
+struct ModelData{
+    std::vector<float> vertices;
+    std::vector<unsigned int> indices;
+    bool loaded = false;
+};
+void loadModelData(const char* file, ModelData &data){
     objl::Loader loader;
     if(!loader.LoadFile(file)){
         std::cerr<<"Failed to load OBJ file"<<std::endl;
         return;
     }
     objl::Mesh mesh = loader.LoadedMeshes[0];
-    float vertices[mesh.Vertices.size() * 8];
+    data.vertices.resize(mesh.Vertices.size() * 8);
     int i = 0;
     for(const auto &vertex : mesh.Vertices){
-        vertices[i++] = vertex.Position.X;
-        vertices[i++] = vertex.Position.Y;
-        vertices[i++] = vertex.Position.Z;
-        vertices[i++] = vertex.TextureCoordinate.X;
-        vertices[i++] = 1.0f - vertex.TextureCoordinate.Y;
-        vertices[i++] = vertex.Normal.X;
-        vertices[i++] = vertex.Normal.Y;
-        vertices[i++] = vertex.Normal.Z;
+        data.vertices[i++] = vertex.Position.X;
+        data.vertices[i++] = vertex.Position.Y;
+        data.vertices[i++] = vertex.Position.Z;
+        data.vertices[i++] = vertex.TextureCoordinate.X;
+        data.vertices[i++] = 1.0f - vertex.TextureCoordinate.Y;
+        data.vertices[i++] = vertex.Normal.X;
+        data.vertices[i++] = vertex.Normal.Y;
+        data.vertices[i++] = vertex.Normal.Z;
     }
-    indexCount = mesh.Indices.size();
+    data.indices = mesh.Indices;
+    data.loaded = true;
+}
+void createGLObjects(const ModelData &data, unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, unsigned int &indexCount){
+    VAOs.push_back(VAO);
+    buffers.push_back(VBO);
+    buffers.push_back(EBO);
+    if(!data.loaded){
+        std::cerr<<"Model data not loaded."<<std::endl;
+        return;
+    }
+    indexCount = data.indices.size();
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
     glGenBuffers(1, &EBO);
     glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, mesh.Vertices.size() * 8 * sizeof(float), &vertices[0], GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, data.vertices.size() * sizeof(float), &data.vertices[0], GL_STATIC_DRAW);
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indexCount * sizeof(unsigned int), &mesh.Indices[0], GL_STATIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, indexCount * sizeof(unsigned int), &data.indices[0], GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*) 0);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*) (3 * sizeof(float)));
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*) (5 * sizeof(float)));
-    return;
 }
 unsigned int loadTexture(const char* file){
     unsigned int textureID;
@@ -583,59 +595,88 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     
     glEnable(GL_DEPTH_TEST);
 
+    std::array<ModelData, 13> models;
+
     unsigned int caseVAO, caseVBO, caseEBO, caseIndexCount;
-    loadModel(caseSource, caseVAO, caseVBO, caseEBO, caseIndexCount);
+    unsigned int cpuVAO, cpuVBO, cpuEBO, cpuIndexCount;
+    unsigned int gpuVAO, gpuVBO, gpuEBO, gpuIndexCount;
+    unsigned int ramVAO, ramVBO, ramEBO, ramIndexCount;
+    unsigned int motherboardVAO, motherboardVBO, motherboardEBO, motherboardIndexCount;
+    unsigned int psuVAO, psuVBO, psuEBO, psuIndexCount;
+    unsigned int ioShieldVAO, ioShieldVBO, ioShieldEBO, ioShieldIndexCount;
+    unsigned int shieldVAO, shieldVBO, shieldEBO, shieldIndexCount;
+    unsigned int glassVAO, glassVBO, glassEBO, glassIndexCount;
+    unsigned int topFanVAO, topFanVBO, topFanEBO, topFanIndexCount;
+    unsigned int frontFanVAO, frontFanVBO, frontFanEBO, frontFanIndexCount;
+    unsigned int backFanVAO, backFanVBO, backFanEBO, backFanIndexCount;
+    unsigned int cpuFanVAO, cpuFanVBO, cpuFanEBO, cpuFanIndexCount;
+    unsigned int* modelInfos[52] = {
+        &caseVAO, &caseVBO, &caseEBO, &caseIndexCount,
+        &cpuVAO, &cpuVBO, &cpuEBO, &cpuIndexCount,
+        &gpuVAO, &gpuVBO, &gpuEBO, &gpuIndexCount,
+        &ramVAO, &ramVBO, &ramEBO, &ramIndexCount,
+        &motherboardVAO, &motherboardVBO, &motherboardEBO, &motherboardIndexCount,
+        &psuVAO, &psuVBO, &psuEBO, &psuIndexCount,
+        &ioShieldVAO, &ioShieldVBO, &ioShieldEBO, &ioShieldIndexCount,
+        &shieldVAO, &shieldVBO, &shieldEBO, &shieldIndexCount,
+        &glassVAO, &glassVBO, &glassEBO, &glassIndexCount,
+        &topFanVAO, &topFanVBO, &topFanEBO, &topFanIndexCount,
+        &frontFanVAO, &frontFanVBO, &frontFanEBO, &frontFanIndexCount,
+        &backFanVAO, &backFanVBO, &backFanEBO, &backFanIndexCount,
+        &cpuFanVAO, &cpuFanVBO, &cpuFanEBO, &cpuFanIndexCount
+    };
+    std::thread caseThread([&](){ loadModelData(caseSource, models[0]); });
+    std::thread cpuThread([&](){ loadModelData(cpuSource, models[1]); });
+    std::thread gpuThread([&](){ loadModelData(gpuSource, models[2]); });
+    std::thread ramThread([&](){ loadModelData(ramSource, models[3]); });
+    std::thread motherboardThread([&](){ loadModelData(motherboardSource, models[4]); });
+    std::thread psuThread([&](){ loadModelData(psuSource, models[5]); });
+    std::thread ioShieldThread([&](){ loadModelData(ioShieldSource, models[6]); });
+    std::thread shieldThread([&](){ loadModelData(shieldSource, models[7]); });
+    std::thread glassThread([&](){ loadModelData(glassSource, models[8]); });
+    std::thread topFanThread([&](){ loadModelData(topFanSource, models[9]); });
+    std::thread frontFanThread([&](){ loadModelData(frontFanSource, models[10]); });
+    std::thread backFanThread([&](){ loadModelData(backFanSource, models[11]); });
+    std::thread cpuFanThread([&](){ loadModelData(cpuFanSource, models[12]); });
+    caseThread.join();
+    cpuThread.join();
+    gpuThread.join();
+    ramThread.join();
+    motherboardThread.join();
+    psuThread.join();
+    ioShieldThread.join();
+    shieldThread.join();
+    glassThread.join();
+    topFanThread.join();
+    frontFanThread.join();
+    backFanThread.join();
+    cpuFanThread.join();
+    for(int i=0; i<13; i++){
+        if(!models[i].loaded){
+            std::cerr<<"Model data for model "<<i<<" not loaded."<<std::endl;
+            return -1;
+        }
+        createGLObjects(models[i], *modelInfos[i*4], *modelInfos[i*4+1], *modelInfos[i*4+2], *modelInfos[i*4+3]);
+    }
+
     unsigned int caseTextures[4];
     for(int i = 0; i < 4; i++) caseTextures[i] = loadTexture(caseTexturesSource[i]);
-
-    unsigned int cpuVAO, cpuVBO, cpuEBO, cpuIndexCount;
-    loadModel(cpuSource, cpuVAO, cpuVBO, cpuEBO, cpuIndexCount);
     unsigned int cpuTextures[4];
     for(int i = 0; i < 4; i++) cpuTextures[i] = loadTexture(cpuTexturesSource[i]);
-
-    unsigned int gpuVAO, gpuVBO, gpuEBO, gpuIndexCount;
-    loadModel(gpuSource, gpuVAO, gpuVBO, gpuEBO, gpuIndexCount);
     unsigned int gpuTextures[4];
     for(int i = 0; i < 4; i++) gpuTextures[i] = loadTexture(gpuTexturesSource[i]);
-
-    unsigned int ramVAO, ramVBO, ramEBO, ramIndexCount;
-    loadModel(ramSource, ramVAO, ramVBO, ramEBO, ramIndexCount);
     unsigned int ramTextures[4];
     for(int i = 0; i < 4; i++) ramTextures[i] = loadTexture(ramTexturesSource[i]);
-
-    unsigned int motherboardVAO, motherboardVBO, motherboardEBO, motherboardIndexCount;
-    loadModel(motherboardSource, motherboardVAO, motherboardVBO, motherboardEBO, motherboardIndexCount);
     unsigned int motherboardTextures[4];
     for(int i = 0; i < 4; i++) motherboardTextures[i] = loadTexture(motherboardTexturesSource[i]);
-
-    unsigned int psuVAO, psuVBO, psuEBO, psuIndexCount;
-    loadModel(psuSource, psuVAO, psuVBO, psuEBO, psuIndexCount);
     unsigned int psuTextures[4];
     for(int i = 0; i < 4; i++) psuTextures[i] = loadTexture(psuTexturesSource[i]);
-
-    unsigned int ioShieldVAO, ioShieldVBO, ioShieldEBO, ioShieldIndexCount;
-    loadModel(ioShieldSource, ioShieldVAO, ioShieldVBO, ioShieldEBO, ioShieldIndexCount);
     unsigned int ioShieldTextures[4];
     for(int i = 0; i < 4; i++) ioShieldTextures[i] = loadTexture(ioShieldTexturesSource[i]);
-
-    unsigned int shieldVAO, shieldVBO, shieldEBO, shieldIndexCount;
-    loadModel(shieldSource, shieldVAO, shieldVBO, shieldEBO, shieldIndexCount);
     unsigned int shieldTextures[4];
     for(int i = 0; i < 4; i++) shieldTextures[i] = loadTexture(shieldTexturesSource[i]);
-
-    unsigned int glassVAO, glassVBO, glassEBO, glassIndexCount;
-    loadModel(glassSource, glassVAO, glassVBO, glassEBO, glassIndexCount);
     unsigned int glassTextures[4];
     for(int i = 0; i < 4; i++) glassTextures[i] = loadTexture(glassTexturesSource[i]);
-
-    unsigned int topFanVAO, topFanVBO, topFanEBO, topFanIndexCount;
-    loadModel(topFanSource, topFanVAO, topFanVBO, topFanEBO, topFanIndexCount);
-    unsigned int frontFanVAO, frontFanVBO, frontFanEBO, frontFanIndexCount;
-    loadModel(frontFanSource, frontFanVAO, frontFanVBO, frontFanEBO, frontFanIndexCount);
-    unsigned int backFanVAO, backFanVBO, backFanEBO, backFanIndexCount;
-    loadModel(backFanSource, backFanVAO, backFanVBO, backFanEBO, backFanIndexCount);
-    unsigned int cpuFanVAO, cpuFanVBO, cpuFanEBO, cpuFanIndexCount;
-    loadModel(cpuFanSource, cpuFanVAO, cpuFanVBO, cpuFanEBO, cpuFanIndexCount);
 
     float spriteVertices[] = {
         0.0f, 1.0f,  0.0f, 1.0f,
@@ -790,6 +831,8 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glUniform3fv(glGetUniformLocation(shaderProgram, "camPos"), 1, &camPos[0]);
         glUniform1i(glGetUniformLocation(shaderProgram, "isEmissive"), 0);
 
+        glDepthMask(GL_TRUE);
+
         if(gpuEnabled) drawObject(gpuTextures, shaderProgram, gpuVAO, gpuIndexCount);
         drawObject(cpuTextures, shaderProgram, cpuVAO, cpuIndexCount);
         drawObject(ramTextures, shaderProgram, ramVAO, ramIndexCount);
@@ -797,7 +840,23 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         drawObject(psuTextures, shaderProgram, psuVAO, psuIndexCount);
         drawObject(ioShieldTextures, shaderProgram, ioShieldVAO, ioShieldIndexCount);
         if(cpuFanEnabled) drawObject(caseTextures, shaderProgram, cpuFanVAO, cpuFanIndexCount);
-        
+        if(topFanEnabled) drawObject(caseTextures, shaderProgram, topFanVAO, topFanIndexCount);
+        if(frontFanEnabled) drawObject(caseTextures, shaderProgram, frontFanVAO, frontFanIndexCount);
+
+        for(int i=0; i<3; i++){
+            if(backFanLocations[i]>0.0f) continue;
+            glm::mat4 backFanLocation = glm::mat4(1.0f);
+            backFanLocation = glm::translate(backFanLocation, glm::vec3(0, backFanLocations[i], 0));
+            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &backFanLocation[0][0]);
+            drawObject(caseTextures, shaderProgram, backFanVAO, backFanIndexCount);
+        }
+        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
+        drawObject(caseTextures, shaderProgram, caseVAO, caseIndexCount);
+        glDepthMask(GL_FALSE);
+        glEnable(GL_DEPTH_TEST);
+        drawObject(shieldTextures, shaderProgram, shieldVAO, shieldIndexCount);
+        glDepthMask(GL_TRUE);
+
         static std::vector<float> speedData(128 * 128 * 128);
         for(int z=0; z<128; z++){
             for(int y=0; y<128; y++){
@@ -852,19 +911,6 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
 
         glUseProgram(shaderProgram);
 
-        if(topFanEnabled) drawObject(caseTextures, shaderProgram, topFanVAO, topFanIndexCount);
-        if(frontFanEnabled) drawObject(caseTextures, shaderProgram, frontFanVAO, frontFanIndexCount);
-
-        for(int i=0; i<3; i++){
-            if(backFanLocations[i]>0.0f) continue;
-            glm::mat4 backFanLocation = glm::mat4(1.0f);
-            backFanLocation = glm::translate(backFanLocation, glm::vec3(0, backFanLocations[i], 0));
-            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &backFanLocation[0][0]);
-            drawObject(caseTextures, shaderProgram, backFanVAO, backFanIndexCount);
-        }
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
-        
-        drawObject(caseTextures, shaderProgram, caseVAO, caseIndexCount);
         drawObject(shieldTextures, shaderProgram, shieldVAO, shieldIndexCount);
         drawObject(glassTextures, shaderProgram, glassVAO, glassIndexCount);
 

@@ -1,5 +1,6 @@
 #include <iostream>
 #include <vector>
+#include <unordered_set>
 #include <cstring>
 #include <cuda_runtime.h>
 
@@ -30,8 +31,117 @@ constexpr float cellSizeX = (worldMaxX - worldMinX) / gridSizeX;
 constexpr float cellSizeY = (worldMaxY - worldMinY) / gridSizeY;
 constexpr float cellSizeZ = (worldMaxZ - worldMinZ) / gridSizeZ;
 
-constexpr int maxPressureIterations = 25;
+constexpr int maxPressureIterations = 10;
 constexpr float pressureTolerance = 1e-4f;
+
+class CudaMemoryPool{
+private:
+    struct Block{
+        void* ptr;
+        size_t size;
+        bool inUse;
+        Block(void* p, size_t s) : ptr(p), size(s), inUse(false) {}
+    };
+    std::vector<Block> blocks;
+    std::unordered_set<void*> allocatedPointers;
+public:
+    ~CudaMemoryPool(){
+        for(auto& block : blocks) if(block.ptr) cudaFree(block.ptr);
+    }
+    void* allocate(size_t size){
+        for(auto& block : blocks){
+            if(!block.inUse && block.size >= size){
+                block.inUse = true;
+                allocatedPointers.insert(block.ptr);
+                return block.ptr;
+            }
+        }
+        void* newPtr;
+        CUDA_CHECK(cudaMalloc(&newPtr, size));
+        blocks.emplace_back(newPtr, size);
+        blocks.back().inUse = true;
+        allocatedPointers.insert(newPtr);
+        return newPtr;
+    }
+    void deallocate(void* ptr){
+        if(allocatedPointers.find(ptr)==allocatedPointers.end()) return;
+        for(auto& block : blocks){
+            if(block.ptr == ptr && block.inUse){
+                block.inUse = false;
+                allocatedPointers.erase(ptr);
+                return;
+            }
+        }
+    }
+    static CudaMemoryPool& getInstance(){
+        static CudaMemoryPool instance;
+        return instance;
+    }
+};
+
+class SimulationMemory{
+private:
+    float* d_divergence = nullptr;
+    float* d_pressure = nullptr;
+    float* d_pressureOut = nullptr;
+    float* d_residual = nullptr;
+    float* d_tempVelocity = nullptr;
+    float* d_pressureFieldTemp = nullptr;
+    float* d_cgR = nullptr;
+    float* d_cgP = nullptr;
+    float* d_cgAp = nullptr;
+    float* d_cgTemp = nullptr;
+    int allocatedGridSize = 0;
+public:
+    ~SimulationMemory(){
+        cleanup();
+    }
+    void cleanup(){
+        if(allocatedGridSize==0) return;
+        auto& pool = CudaMemoryPool::getInstance();
+        pool.deallocate(d_divergence);
+        pool.deallocate(d_pressure);
+        pool.deallocate(d_pressureOut);
+        pool.deallocate(d_residual);
+        pool.deallocate(d_tempVelocity);
+        pool.deallocate(d_pressureFieldTemp);
+        pool.deallocate(d_cgR);
+        pool.deallocate(d_cgP);
+        pool.deallocate(d_cgAp);
+        pool.deallocate(d_cgTemp);
+        allocatedGridSize = 0;
+    }
+    void ensureAllocated(int numCells){
+        if(allocatedGridSize>=numCells) return;
+        cleanup();
+        auto& pool = CudaMemoryPool::getInstance();
+        d_divergence = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_pressure = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_pressureOut = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_residual = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_tempVelocity = static_cast<float*>(pool.allocate(numCells * 3 * sizeof(float)));
+        d_pressureFieldTemp = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_cgR = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_cgP = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_cgAp = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_cgTemp = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        allocatedGridSize = numCells;
+    }
+    float* getDivergence() { return d_divergence; }
+    float* getPressure() { return d_pressure; }
+    float* getPressureOut() { return d_pressureOut; }
+    float* getResidual() { return d_residual; }
+    float* getTempVelocity() { return d_tempVelocity; }
+    float* getPressureFieldTemp() { return d_pressureFieldTemp; }
+    float* getCGResidual() { return d_cgR; }
+    float* getCGSearchDirection() { return d_cgP; }
+    float* getCGMatrixVectorProduct() { return d_cgAp; }
+    float* getCGTemp() { return d_cgTemp; }
+    static SimulationMemory& getInstance() {
+        static SimulationMemory instance;
+        return instance;
+    }
+};
 
 __device__ bool isValidFluidCell(int x, int y, int z, int GX, int GY, int GZ, unsigned char* solidGrid) {
     if (x < 0 || x >= GX || y < 0 || y >= GY || z < 0 || z >= GZ) return false;
@@ -55,19 +165,19 @@ __global__ void computeDivergenceKernel(
     }
     float div = 0.0f;
     if(i < GX-1 && i > 0){
-        float u_right = isValidFluidCell(i+1, j, k, GX, GY, GZ, solidGrid) ? velocity[idx3D(i+1, j, k, GX, GY) * 3 + 0] : 0.0f;
-        float u_left = isValidFluidCell(i-1, j, k, GX, GY, GZ, solidGrid) ? velocity[idx3D(i-1, j, k, GX, GY) * 3 + 0] : 0.0f;
-        div += (u_right - u_left) / (2.0f * cellSizeX);
+        float uRight = isValidFluidCell(i+1, j, k, GX, GY, GZ, solidGrid) ? velocity[idx3D(i+1, j, k, GX, GY) * 3 + 0] : 0.0f;
+        float uLeft = isValidFluidCell(i-1, j, k, GX, GY, GZ, solidGrid) ? velocity[idx3D(i-1, j, k, GX, GY) * 3 + 0] : 0.0f;
+        div += (uRight - uLeft) / (2.0f * cellSizeX);
     }
     if(j < GY-1 && j > 0){
-        float v_up = isValidFluidCell(i, j+1, k, GX, GY, GZ, solidGrid) ? velocity[idx3D(i, j+1, k, GX, GY) * 3 + 1] : 0.0f;
-        float v_down = isValidFluidCell(i, j-1, k, GX, GY, GZ, solidGrid) ? velocity[idx3D(i, j-1, k, GX, GY) * 3 + 1] : 0.0f;
-        div += (v_up - v_down) / (2.0f * cellSizeY);
+        float vUp = isValidFluidCell(i, j+1, k, GX, GY, GZ, solidGrid) ? velocity[idx3D(i, j+1, k, GX, GY) * 3 + 1] : 0.0f;
+        float vDown = isValidFluidCell(i, j-1, k, GX, GY, GZ, solidGrid) ? velocity[idx3D(i, j-1, k, GX, GY) * 3 + 1] : 0.0f;
+        div += (vUp - vDown) / (2.0f * cellSizeY);
     }
     if(k < GZ-1 && k > 0){
-        float w_front = isValidFluidCell(i, j, k+1, GX, GY, GZ, solidGrid) ? velocity[idx3D(i, j, k+1, GX, GY) * 3 + 2] : 0.0f;
-        float w_back = isValidFluidCell(i, j, k-1, GX, GY, GZ, solidGrid) ? velocity[idx3D(i, j, k-1, GX, GY) * 3 + 2] : 0.0f;
-        div += (w_front - w_back) / (2.0f * cellSizeZ);
+        float wFront = isValidFluidCell(i, j, k+1, GX, GY, GZ, solidGrid) ? velocity[idx3D(i, j, k+1, GX, GY) * 3 + 2] : 0.0f;
+        float wBack = isValidFluidCell(i, j, k-1, GX, GY, GZ, solidGrid) ? velocity[idx3D(i, j, k-1, GX, GY) * 3 + 2] : 0.0f;
+        div += (wFront - wBack) / (2.0f * cellSizeZ);
     }
     divergence[idx] = div;
 }
@@ -215,11 +325,12 @@ __host__ void solvePressureProjection(
     float dt
 ){
     const int numCells = GX * GY * GZ;
-    float *d_divergence, *d_pressure, *d_pressureOut, *d_residual;
-    CUDA_CHECK(cudaMalloc(&d_divergence, numCells * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_pressure, numCells * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_pressureOut, numCells * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_residual, numCells * sizeof(float)));
+    auto& simMem = SimulationMemory::getInstance();
+    simMem.ensureAllocated(numCells);
+    float* d_divergence = simMem.getDivergence();
+    float* d_pressure = simMem.getPressure();
+    float* d_pressureOut = simMem.getPressureOut();
+    float* d_residual = simMem.getResidual();
 
     CUDA_CHECK(cudaMemset(d_pressure, 0, numCells * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_pressureOut, 0, numCells * sizeof(float)));
@@ -264,10 +375,6 @@ __host__ void solvePressureProjection(
         d_velocity, d_pressure_in, d_solidGrid, GX, GY, GZ, dt
     );
     CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaFree(d_divergence));
-    CUDA_CHECK(cudaFree(d_pressure));
-    CUDA_CHECK(cudaFree(d_pressureOut));
-    CUDA_CHECK(cudaFree(d_residual));
 }
 
 __global__ void addFanForcesKernel(
@@ -276,6 +383,7 @@ __global__ void addFanForcesKernel(
     float3* fanPos,
     float3* fanDir,
     int numFans,
+    float dampeningFactor,
     int GX, int GY, int GZ
 ){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -328,31 +436,9 @@ __global__ void addFanForcesKernel(
     velocity[idx * 3 + 1] += accum.y;
     velocity[idx * 3 + 2] += accum.z;
     const float maxVelocity = 10.0f;
-    velocity[idx * 3 + 0] = fminf(fmaxf(velocity[idx * 3 + 0], -maxVelocity), maxVelocity);
-    velocity[idx * 3 + 1] = fminf(fmaxf(velocity[idx * 3 + 1], -maxVelocity), maxVelocity);
-    velocity[idx * 3 + 2] = fminf(fmaxf(velocity[idx * 3 + 2], -maxVelocity), maxVelocity);
-}
-
-__global__ void applyDampeningKernel(
-    float* velocity,
-    unsigned char* solidGrid,
-    int GX, int GY, int GZ,
-    float dampeningFactor
-){
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    int k = blockIdx.z * blockDim.z + threadIdx.z;
-    if (i >= GX || j >= GY || k >= GZ) return;
-    int idx = idx3D(i, j, k, GX, GY);
-    if(solidGrid[idx] != 0){
-        velocity[idx * 3 + 0] = 0.0f;
-        velocity[idx * 3 + 1] = 0.0f;
-        velocity[idx * 3 + 2] = 0.0f;
-        return;
-    }
-    velocity[idx * 3 + 0] *= dampeningFactor;
-    velocity[idx * 3 + 1] *= dampeningFactor;
-    velocity[idx * 3 + 2] *= dampeningFactor;
+    velocity[idx * 3 + 0] = fminf(fmaxf(velocity[idx * 3 + 0], -maxVelocity), maxVelocity) * dampeningFactor;
+    velocity[idx * 3 + 1] = fminf(fmaxf(velocity[idx * 3 + 1], -maxVelocity), maxVelocity) * dampeningFactor;
+    velocity[idx * 3 + 2] = fminf(fmaxf(velocity[idx * 3 + 2], -maxVelocity), maxVelocity) * dampeningFactor;
 }
 
 __global__ void advectVelocityKernel(
@@ -432,14 +518,11 @@ extern "C" void runFluidSimulation(
         (gridSizeZ + block.z - 1) / block.z
     );
     const int numCells = gridSizeX * gridSizeY * gridSizeZ;
-    float* d_tempVelocity;
-    CUDA_CHECK(cudaMalloc(&d_tempVelocity, numCells * 3 * sizeof(float)));
+    auto& simMem = SimulationMemory::getInstance();
+    simMem.ensureAllocated(numCells);
+    float* d_tempVelocity = simMem.getTempVelocity();
     addFanForcesKernel<<<grid, block>>>(
-        d_velocityField, d_solidGrid, d_fanPositions, d_fanDirections, numFans, gridSizeX, gridSizeY, gridSizeZ
-    );
-    CUDA_CHECK(cudaDeviceSynchronize());
-    applyDampeningKernel<<<grid, block>>>(
-        d_velocityField, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, 0.95f
+        d_velocityField, d_solidGrid, d_fanPositions, d_fanDirections, numFans, 0.95, gridSizeX, gridSizeY, gridSizeZ
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     advectVelocityKernel<<<grid, block>>>(
@@ -447,11 +530,10 @@ extern "C" void runFluidSimulation(
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaMemcpy(d_velocityField, d_tempVelocity, numCells * 3 * sizeof(float), cudaMemcpyDeviceToDevice));
-    float* d_pressureFieldTemp;
+    float* d_pressureFieldTemp = simMem.getPressureFieldTemp();
     CUDA_CHECK(cudaMalloc(&d_pressureFieldTemp, numCells * sizeof(float)));
     solvePressureProjection(
         d_velocityField, d_pressureFieldTemp, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
     );
     CUDA_CHECK(cudaMemcpy(d_pressureField, d_pressureFieldTemp, numCells * sizeof(float), cudaMemcpyDeviceToDevice));
-    CUDA_CHECK(cudaFree(d_tempVelocity));
 }

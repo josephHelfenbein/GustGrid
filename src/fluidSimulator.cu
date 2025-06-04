@@ -34,6 +34,11 @@ constexpr float cellSizeZ = (worldMaxZ - worldMinZ) / gridSizeZ;
 constexpr int maxPressureIterations = 10;
 constexpr float pressureTolerance = 1e-4f;
 
+constexpr float thermalDiffusivity = 0.02f;
+constexpr float ambientTemperature = 20.0f;
+constexpr float coolingRate = 0.001f;
+constexpr float heatSourceStrength = 5.0f;
+
 class CudaMemoryPool{
 private:
     struct Block{
@@ -86,11 +91,11 @@ private:
     float* d_pressureOut = nullptr;
     float* d_residual = nullptr;
     float* d_tempVelocity = nullptr;
-    float* d_pressureFieldTemp = nullptr;
     float* d_cgR = nullptr;
     float* d_cgP = nullptr;
     float* d_cgAp = nullptr;
     float* d_cgTemp = nullptr;
+    float* d_tempTemperature = nullptr;
     int allocatedGridSize = 0;
 public:
     ~SimulationMemory(){
@@ -104,11 +109,11 @@ public:
         pool.deallocate(d_pressureOut);
         pool.deallocate(d_residual);
         pool.deallocate(d_tempVelocity);
-        pool.deallocate(d_pressureFieldTemp);
         pool.deallocate(d_cgR);
         pool.deallocate(d_cgP);
         pool.deallocate(d_cgAp);
         pool.deallocate(d_cgTemp);
+        pool.deallocate(d_tempTemperature);
         allocatedGridSize = 0;
     }
     void ensureAllocated(int numCells){
@@ -120,11 +125,11 @@ public:
         d_pressureOut = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_residual = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_tempVelocity = static_cast<float*>(pool.allocate(numCells * 3 * sizeof(float)));
-        d_pressureFieldTemp = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_cgR = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_cgP = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_cgAp = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_cgTemp = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_tempTemperature = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         allocatedGridSize = numCells;
     }
     float* getDivergence() { return d_divergence; }
@@ -132,11 +137,11 @@ public:
     float* getPressureOut() { return d_pressureOut; }
     float* getResidual() { return d_residual; }
     float* getTempVelocity() { return d_tempVelocity; }
-    float* getPressureFieldTemp() { return d_pressureFieldTemp; }
     float* getCGResidual() { return d_cgR; }
     float* getCGSearchDirection() { return d_cgP; }
     float* getCGMatrixVectorProduct() { return d_cgAp; }
     float* getCGTemp() { return d_cgTemp; }
+    float* getTempTemperature() { return d_tempTemperature; }
     static SimulationMemory& getInstance() {
         static SimulationMemory instance;
         return instance;
@@ -315,6 +320,103 @@ __global__ void computeResidualKernel(
     }
     float residualValue = laplacian - divergence[idx];
     residual[idx] = residualValue * residualValue;
+}
+
+__global__ void heatDiffusionKernel(
+    float* tempIn,
+    float* tempOut,
+    float* heatSources,
+    unsigned char* solidGrid,
+    int GX, int GY, int GZ,
+    float dt
+){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= GX || j >= GY || k >= GZ) return;
+    int idx = idx3D(i, j, k, GX, GY);
+    float temp = tempIn[idx];
+    float heatDiffusion = 0.0f;
+    int neighbors[6][3] = {
+        {-1, 0, 0},
+        {1, 0, 0},
+        {0, -1, 0},
+        {0, 1, 0},
+        {0, 0, -1},
+        {0, 0, 1}
+    };
+    float cellSizes[3] = {cellSizeX, cellSizeY, cellSizeZ};
+    for(int n=0; n<6; n++){
+        int ni = i + neighbors[n][0];
+        int nj = j + neighbors[n][1];
+        int nk = k + neighbors[n][2];
+        if(ni >= 0 && ni < GX && nj >= 0 && nj < GY && nk >= 0 && nk < GZ){
+            int nidx = idx3D(ni, nj, nk, GX, GY);
+            if(solidGrid[nidx] == 0){
+                int axis = n/2;
+                float h = cellSizes[axis];
+                heatDiffusion += (tempIn[nidx] - temp) / (h * h);
+            }
+        }
+    }
+    tempOut[idx] = temp + dt * (
+        thermalDiffusivity * heatDiffusion +
+        heatSources[idx] * heatSourceStrength -
+        coolingRate * (temp - ambientTemperature)
+    );
+}
+
+__global__ void advectHeatKernel(
+    float* tempIn,
+    float* tempOut,
+    float* velocity,
+    unsigned char* solidGrid,
+    int GX, int GY, int GZ,
+    float dt
+){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= GX || j >= GY || k >= GZ) return;
+    int idx = idx3D(i, j, k, GX, GY);
+    if(solidGrid[idx] != 0){
+        tempOut[idx] = tempIn[idx];
+        return;
+    }
+    float vx = velocity[idx * 3 + 0];
+    float vy = velocity[idx * 3 + 1];
+    float vz = velocity[idx * 3 + 2];
+    float x0 = i - vx * dt / cellSizeX;
+    float y0 = j - vy * dt / cellSizeY;
+    float z0 = k - vz * dt / cellSizeZ;
+    x0 = fmin(fmax(x0, 0.5f), GX - 1.5f);
+    y0 = fmin(fmax(y0, 0.5f), GY - 1.5f);
+    z0 = fmin(fmax(z0, 0.5f), GZ - 1.5f);
+    int xi = int(x0);
+    int yi = int(y0);
+    int zi = int(z0);
+    float fx = x0 - xi;
+    float fy = y0 - yi;
+    float fz = z0 - zi;
+    xi = max(0, min(xi, GX - 2));
+    yi = max(0, min(yi, GY - 2));
+    zi = max(0, min(zi, GZ - 2));
+
+    float t000 = tempIn[idx3D(xi, yi, zi, GX, GY)];
+    float t001 = tempIn[idx3D(xi, yi, zi+1, GX, GY)];
+    float t010 = tempIn[idx3D(xi, yi+1, zi, GX, GY)];
+    float t011 = tempIn[idx3D(xi, yi+1, zi+1, GX, GY)];
+    float t100 = tempIn[idx3D(xi+1, yi, zi, GX, GY)];
+    float t101 = tempIn[idx3D(xi+1, yi, zi+1, GX, GY)];
+    float t110 = tempIn[idx3D(xi+1, yi+1, zi, GX, GY)];
+    float t111 = tempIn[idx3D(xi+1, yi+1, zi+1, GX, GY)];
+    float t00 = t000 * (1.0f - fx) + t100 * fx;
+    float t01 = t001 * (1.0f - fx) + t101 * fx;
+    float t10 = t010 * (1.0f - fx) + t110 * fx;
+    float t11 = t011 * (1.0f - fx) + t111 * fx;
+    float t0 = t00 * (1.0f - fy) + t10 * fy;
+    float t1 = t01 * (1.0f - fy) + t11 * fy;
+    tempOut[idx] = t0 * (1.0f - fz) + t1 * fz;
 }
 
 __host__ void solvePressureProjection(
@@ -508,6 +610,8 @@ extern "C" void runFluidSimulation(
     unsigned char* d_solidGrid,
     float3* d_fanPositions,
     float3* d_fanDirections,
+    float* d_heatSources,
+    float* d_temperature,
     int numFans,
     float dt
 ){
@@ -521,6 +625,7 @@ extern "C" void runFluidSimulation(
     auto& simMem = SimulationMemory::getInstance();
     simMem.ensureAllocated(numCells);
     float* d_tempVelocity = simMem.getTempVelocity();
+    float* d_tempTemperature = simMem.getTempTemperature();
     addFanForcesKernel<<<grid, block>>>(
         d_velocityField, d_solidGrid, d_fanPositions, d_fanDirections, numFans, 0.95, gridSizeX, gridSizeY, gridSizeZ
     );
@@ -533,5 +638,12 @@ extern "C" void runFluidSimulation(
     solvePressureProjection(
         d_velocityField, d_pressureField, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
     );
-    CUDA_CHECK(cudaMemcpy(d_pressureField, d_pressureField, numCells * sizeof(float), cudaMemcpyDeviceToDevice));
+    heatDiffusionKernel<<<grid, block>>>(
+        d_temperature, d_tempTemperature, d_heatSources, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
+    );
+    CUDA_CHECK(cudaDeviceSynchronize());
+    advectHeatKernel<<<grid, block>>>(
+        d_tempTemperature, d_temperature, d_velocityField, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
+    );
+    CUDA_CHECK(cudaDeviceSynchronize());
 }

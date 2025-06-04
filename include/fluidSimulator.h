@@ -8,6 +8,8 @@ extern "C" void runFluidSimulation(
     unsigned char* d_solidGrid,
     float3* d_fanPositions,
     float3* d_fanDirections,
+    float* d_heatSources,
+    float* d_temperature,
     int numFans,
     float dt
 );

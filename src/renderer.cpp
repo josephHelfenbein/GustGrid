@@ -577,7 +577,7 @@ void drawArrowInput(unsigned int shader, unsigned int VAO, unsigned int VBO, glm
     glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
-int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady, bool &displayPressure){
+int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady, bool &displayPressure, float* temperatureField){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
         return -1;
@@ -747,6 +747,16 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
     float borderColor[] = {0.0f, 0.0f, 0.0f, 1.0f};
     glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, borderColor);
+    unsigned int temperature3DTexture;
+    glGenTextures(1, &temperature3DTexture);
+    glBindTexture(GL_TEXTURE_3D, temperature3DTexture);
+    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, gridSizeX, gridSizeY, gridSizeZ);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, borderColor);
     glBindTexture(GL_TEXTURE_3D, 0);
     unsigned int volumeVAO, volumeVBO;
     float cubeVertex[] = {
@@ -874,6 +884,17 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         }
         glBindTexture(GL_TEXTURE_3D, volume3DTexture);
         glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, volumeData.data());
+        static std::vector<float> temperatureData(gridSizeX * gridSizeY * gridSizeZ);
+        for(int z=0; z<gridSizeZ; z++){
+            for(int y=0; y<gridSizeY; y++){
+                for(int x=0; x<gridSizeX; x++){
+                    int index = z * gridSizeX * gridSizeY + y * gridSizeX + x;
+                    temperatureData[index] = temperatureField[index];
+                }
+            }
+        }
+        glBindTexture(GL_TEXTURE_3D, temperature3DTexture);
+        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, temperatureData.data());
         glBindTexture(GL_TEXTURE_3D, 0);
 
         glUseProgram(volumeShaderProgram);
@@ -883,6 +904,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         glUniformMatrix4fv(glGetUniformLocation(volumeShaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
         glUniform3fv(glGetUniformLocation(volumeShaderProgram, "camPos"), 1, &camPos[0]);
         glUniform1i(glGetUniformLocation(volumeShaderProgram, "volumeTex"), 0);
+        glUniform1i(glGetUniformLocation(volumeShaderProgram, "temperatureTex"), 1);
         glUniform1i(glGetUniformLocation(volumeShaderProgram, "displayPressure"), displayPressure ? 1 : 0);
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "gridSize"), (float) gridSizeX, (float) gridSizeY, (float) gridSizeZ);
         glUniform1f(glGetUniformLocation(volumeShaderProgram, "stepSize"), 1.0 / 128.0f);
@@ -892,6 +914,8 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_3D, volume3DTexture);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_3D, temperature3DTexture);
         glBindVertexArray(volumeVAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);

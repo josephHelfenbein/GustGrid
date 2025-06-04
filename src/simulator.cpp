@@ -34,9 +34,10 @@ static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
 #define gridSizeZ 128
 const int numCells = (gridSizeX * gridSizeY * gridSizeZ);
 
-int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> signalVelocityFieldReady, std::function<void()> waitForItems, bool &displayPressure){
+int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> signalVelocityFieldReady, std::function<void()> waitForItems, bool &displayPressure, float* temperatureField){
     waitForItems();
     std::vector<unsigned char> h_solidGrid(numCells, 0);
+    std::vector<float> h_heatSources(numCells, 0.0f);
     std::vector<float3> h_fanPositions;
     std::vector<float3> h_fanDirections;
     int maxFanCount = 1 + 1 + 1 + 2 + 3;
@@ -46,12 +47,15 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
     float3* d_fanDirections = nullptr;
     float* d_velocityField = nullptr;
     float* d_pressureField = nullptr;
+    float* d_heatSources = nullptr;
+    float* d_temperature = nullptr;
     unsigned char* d_solidGrid = nullptr;
     size_t solidGridSize = numCells * sizeof(unsigned char);
     size_t velocityFieldSize = numCells * sizeof(float) * 3;
     size_t pressureFieldSize = numCells * sizeof(float);
     std::vector<float> h_velocity(numCells * 3, 0.0f);
-    std::vector<float> h_pressure(numCells * 3, 0.0f);
+    std::vector<float> h_pressure(numCells, 0.0f);
+    std::vector<float> h_temperature(numCells, 0.0f);
     size_t fanPositionsSize = maxFanCount * sizeof(float3);
     size_t fanDirectionsSize = maxFanCount * sizeof(float3);
     int numFans = 0;
@@ -60,6 +64,10 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
     CUDA_CHECK(cudaMemset(d_velocityField, 0, velocityFieldSize));
     CUDA_CHECK(cudaMalloc(&d_pressureField, pressureFieldSize));
     CUDA_CHECK(cudaMemset(d_pressureField, 0, pressureFieldSize));
+    CUDA_CHECK(cudaMalloc(&d_heatSources, pressureFieldSize));
+    CUDA_CHECK(cudaMemset(d_heatSources, 0, pressureFieldSize));
+    CUDA_CHECK(cudaMalloc(&d_temperature, pressureFieldSize));
+    CUDA_CHECK(cudaMemset(d_temperature, 0, pressureFieldSize));
 
     CUDA_CHECK(cudaMalloc(&d_solidGrid, solidGridSize));
 
@@ -81,17 +89,26 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
                     bool insideSolid = false;
 
                     // case
-                    if(worldY < -4.22f || (worldY > 4.4f && worldZ > -3.65 && worldZ < -0.65)) insideSolid = true;
+                    if((worldY < -4.22f && worldZ > 0.5f) || (worldZ > -1.8f && worldY < -4.26f && worldY > -4.22f) || (worldY > 4.4f && worldZ > -3.65 && worldZ < -0.65)) insideSolid = true;
                     if(worldX < -1.8f || worldX > 1.8f) insideSolid = true;
                     if(worldZ > 3.8f && (worldY < 1.5f || worldX < -0.6f || worldY > 3.8f)) insideSolid = true;
 
-                    // ram
-                    if(worldX < -0.95f && worldX > 5.7f && worldY < 3.6f && worldZ < 0.6f && worldZ > -0.18f) insideSolid = true;
-
                     // gpu
-                    if(gpuEnabled && ((worldZ > -0.53f && worldZ < -0.46f) || (worldZ > 1.08f && worldZ < 1.95) || worldZ > 3.5) && worldY > 0.54f && worldY < 1.09f && worldX < 0.5f) insideSolid = true;
+                    if(gpuEnabled && ((worldZ > -0.53f && worldZ < -0.46f) || (worldZ > 1.08f && worldZ < 1.85) || worldZ > 3.5) && worldY > 0.54f && worldY < 1.09f && worldX < 0.5f) insideSolid = true;
 
                     h_solidGrid[index] = insideSolid ? 1 : 0;
+
+                     // ram
+                    if(worldX < -0.95f && worldX > -1.57f && worldY < 3.6f && worldY > 1.2f && worldZ < 0.6f && worldZ > 0.18f) h_heatSources[index] = 1.0f;
+
+                    // gpu
+                    if(gpuEnabled && ((worldZ > -0.53f && worldZ < -0.46f) || (worldZ > 1.85f && worldZ < 1.95) || worldZ > 3.5) && worldY > 0.54f && worldY < 1.09f && worldX < 0.5f) h_heatSources[index] = 1.0f;
+
+                    // cpu
+                    if(worldZ > 1.2f && worldZ < 1.9f && worldY < 2.7f && worldY > 2.0f && worldX < -1.2 && worldX > -1.7) h_heatSources[index] = 1.0f;
+
+                    // psu
+                    if(worldY < -2.2f && worldY > -2.8f && worldZ > 0.4f && worldZ < 3.6f && worldX < 1.4f && worldX > -1.4f) h_heatSources[index] = 1.0f;
                 }
             }
         }
@@ -137,6 +154,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
         }
 
         CUDA_CHECK(cudaMemcpy(d_solidGrid, h_solidGrid.data(), solidGridSize, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(d_heatSources, h_heatSources.data(), pressureFieldSize, cudaMemcpyHostToDevice));
 
         numFans = static_cast<int>(h_fanPositions.size());
         if(numFans > 0) {
@@ -159,9 +177,13 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
         d_solidGrid,
         d_fanPositions,
         d_fanDirections,
+        d_heatSources,
+        d_temperature,
         numFans,
         dt
     );
+    CUDA_CHECK(cudaMemcpy(h_temperature.data(), d_temperature, pressureFieldSize, cudaMemcpyDeviceToHost));
+    std::memcpy(temperatureField, h_temperature.data(), pressureFieldSize);
     CUDA_CHECK(cudaMemcpy(h_velocity.data(), d_velocityField, velocityFieldSize, cudaMemcpyDeviceToHost));
     std::memcpy(velocityField, h_velocity.data(), velocityFieldSize);
     CUDA_CHECK(cudaMemcpy(h_pressure.data(), d_pressureField, pressureFieldSize, cudaMemcpyDeviceToHost));
@@ -187,9 +209,13 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
             d_solidGrid,
             d_fanPositions,
             d_fanDirections,
+            d_heatSources,
+            d_temperature,
             numFans,
             dt
         );
+        CUDA_CHECK(cudaMemcpy(h_temperature.data(), d_temperature, pressureFieldSize, cudaMemcpyDeviceToHost));
+        std::memcpy(temperatureField, h_temperature.data(), pressureFieldSize);
         if(displayPressure){
             CUDA_CHECK(cudaMemcpy(h_pressure.data(), d_pressureField, pressureFieldSize, cudaMemcpyDeviceToHost));
             std::memcpy(pressureField, h_pressure.data(), pressureFieldSize);

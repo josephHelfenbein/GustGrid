@@ -18,6 +18,7 @@ const int gridSizeZ = 128;
 const int numCells = gridSizeX * gridSizeY * gridSizeZ;
 float* velocityField = new float[numCells * 3]();
 float* pressureField = new float[numCells]();
+float* temperatureField = new float[numCells]();
 bool itemChanged = false;
 bool running = true;
 bool displayPressure = false;
@@ -47,10 +48,10 @@ void waitForItems(){
     itemsReady.wait(lock, []{ return itemsReadyFlag.load(); });
 }
 int rendererWrapper(){
-    return startRenderer(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, waitForVelocityField, signalItemsReady, displayPressure);
+    return startRenderer(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, waitForVelocityField, signalItemsReady, displayPressure, temperatureField);
 }
 int simulatorWrapper(){
-    return startSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, signalVelocityFieldReady, waitForItems, displayPressure);
+    return startSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, signalVelocityFieldReady, waitForItems, displayPressure, temperatureField);
 }
 
 int main(int argc, char* argv[]){
@@ -59,5 +60,7 @@ int main(int argc, char* argv[]){
     simulatorThread.join();
     rendererThread.join();
     delete[] velocityField;
+    delete[] pressureField;
+    delete[] temperatureField;
     return 0;
 }

@@ -5,6 +5,7 @@ in vec3 texCoord;
 out vec4 FragColor;
 
 uniform sampler3D volumeTex;
+uniform sampler3D temperatureTex;
 uniform int displayPressure;
 uniform vec3 camPos;
 uniform vec3 gridSize;
@@ -14,7 +15,8 @@ uniform vec3 worldMax;
 
 void main(){
     vec3 rayDir = normalize(FragPos - camPos);
-    float accumColor = 0.0;
+    float accumAlpha = 0.0;
+    vec3 accumColor = vec3(0.0);
 
     vec3 worldSize = worldMax - worldMin;
     vec3 voxelSize = worldSize / gridSize;
@@ -32,14 +34,21 @@ void main(){
         if(any(lessThan(currentTexCoord, vec3(0.0))) || any(greaterThan(currentTexCoord, vec3(1.0)))) break;
         
         float volumeVal = texture(volumeTex, currentTexCoord).r;
-        float col = clamp(volumeVal * stepSize * opacity, 0.0, 1.0);
+        float a = clamp(volumeVal * stepSize * opacity, 0.0, 1.0);
+        float tempFactor = texture(temperatureTex, currentTexCoord).r;
+        vec3 color = mix(
+            vec3(0.0, 0.0, 1.0),
+            vec3(1.0, 0.0, 0.0),
+            tempFactor
+        );
         
-        accumColor += (1.0 - accumColor) * col;
+        accumAlpha += (1.0 - accumAlpha) * a;
+        accumColor += color * a;
         
-        if(accumColor > 0.95) break;
+        if(accumAlpha > 0.95) break;
         
         currentWorldPos += rayDir * worldStep;
         currentTexCoord = (currentWorldPos - worldMin) / (worldMax - worldMin);
     }
-    FragColor = vec4(accumColor);
+    FragColor = vec4(vec3(accumColor), accumAlpha);
 }

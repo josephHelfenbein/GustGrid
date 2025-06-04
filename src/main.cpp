@@ -12,14 +12,15 @@ bool cpuFanEnabled = true;
 bool frontFanEnabled = true;
 float backFanLocations[3] = {0.0f, -2.5f, 1.0f};
 
-const int gridSizeX = 128;
-const int gridSizeY = 128;
+const int gridSizeX = 64;
+const int gridSizeY = 256;
 const int gridSizeZ = 128;
 const int numCells = gridSizeX * gridSizeY * gridSizeZ;
 float* velocityField = new float[numCells * 3]();
-float* pressureField = new float[numCells * 3]();
+float* pressureField = new float[numCells]();
 bool itemChanged = false;
 bool running = true;
+bool displayPressure = false;
 
 std::mutex velocityFieldMutex;
 std::condition_variable velocityFieldReady;
@@ -46,10 +47,10 @@ void waitForItems(){
     itemsReady.wait(lock, []{ return itemsReadyFlag.load(); });
 }
 int rendererWrapper(){
-    return startRenderer(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, waitForVelocityField, signalItemsReady);
+    return startRenderer(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, waitForVelocityField, signalItemsReady, displayPressure);
 }
 int simulatorWrapper(){
-    return startSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, signalVelocityFieldReady, waitForItems);
+    return startSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, signalVelocityFieldReady, waitForItems, displayPressure);
 }
 
 int main(int argc, char* argv[]){

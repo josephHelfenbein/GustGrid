@@ -54,6 +54,9 @@
 #define renderMaxY 4.22f
 #define renderMinZ -3.4f
 #define renderMaxZ 3.4f
+#define gridSizeX 64
+#define gridSizeY 256
+#define gridSizeZ 128
 
 unsigned int SCR_WIDTH = 800;
 unsigned int SCR_HEIGHT = 600;
@@ -138,6 +141,7 @@ float sliderYPositions[3];
 float *sliderXValues[3];
 float possibleSliderXValues[3];
 int hoverElement = -1;
+bool *displayingPressure = nullptr;
 
 void framebufferSizeCallback(GLFWwindow* window, int width, int height){
     glViewport(0, 0, width, height);
@@ -182,6 +186,11 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
             &&  yposFloat < 50.0f
             &&  xposFloat > SCR_WIDTH - 245.0f
             &&  xposFloat < SCR_WIDTH - 225.0f) hoverElement = 6;
+            else if(
+                yposFloat > 430.0f
+            &&  yposFloat < 450.0f
+            &&  xposFloat > SCR_WIDTH - 75.0f
+            &&  xposFloat < SCR_WIDTH - 55.0f) hoverElement = 7;
         } else if(
             yposFloat > 30.0f
         &&  yposFloat < 50.0f
@@ -263,6 +272,7 @@ void processInput(GLFWwindow* window){
             showUI = !showUI;
             hoverElement = -1;
         }
+        else if(hoverElement == 7) *displayingPressure = !(*displayingPressure);
         firstMouse = false;
         *itemChangedPtr = true;
     }
@@ -344,9 +354,6 @@ void loadModelData(const char* file, ModelData &data){
     data.loaded = true;
 }
 void createGLObjects(const ModelData &data, unsigned int &VAO, unsigned int &VBO, unsigned int &EBO, unsigned int &indexCount){
-    VAOs.push_back(VAO);
-    buffers.push_back(VBO);
-    buffers.push_back(EBO);
     if(!data.loaded){
         std::cerr<<"Model data not loaded."<<std::endl;
         return;
@@ -366,6 +373,9 @@ void createGLObjects(const ModelData &data, unsigned int &VAO, unsigned int &VBO
     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*) (3 * sizeof(float)));
     glEnableVertexAttribArray(2);
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*) (5 * sizeof(float)));
+    VAOs.push_back(VAO);
+    buffers.push_back(VBO);
+    buffers.push_back(EBO);
 }
 unsigned int loadTexture(const char* file){
     unsigned int textureID;
@@ -567,7 +577,7 @@ void drawArrowInput(unsigned int shader, unsigned int VAO, unsigned int VBO, glm
     glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
-int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bool& frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool& itemChanged, bool& running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady){
+int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady, bool &displayPressure){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
         return -1;
@@ -687,8 +697,6 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         1.0f, 0.0f,  1.0f, 0.0f
     };
     unsigned int spriteVAO, spriteVBO;
-    VAOs.push_back(spriteVAO);
-    buffers.push_back(spriteVBO);
     glGenVertexArrays(1, &spriteVAO);
     glGenBuffers(1, &spriteVBO);
     glBindBuffer(GL_ARRAY_BUFFER, spriteVBO);
@@ -697,10 +705,9 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*) 0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
+    VAOs.push_back(spriteVAO);
+    buffers.push_back(spriteVBO);
     unsigned int textVAO, textVBO;
-    VAOs.push_back(textVAO);
-    buffers.push_back(textVBO);
     glGenVertexArrays(1, &textVAO);
     glGenBuffers(1, &textVBO);
     glBindVertexArray(textVAO);
@@ -710,6 +717,8 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*) 0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
     glBindVertexArray(0);
+    VAOs.push_back(textVAO);
+    buffers.push_back(textVBO);
     prepareCharacters();
 
     char* uiVertexShaderSource = getShaders(uiVertexPath);
@@ -727,26 +736,16 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
     unsigned int uiCloseTexture = loadTexture(uiCloseSource);
     unsigned int uiOpenTexture = loadTexture(uiOpenSource);
 
-    unsigned int volumeVelocity3D;
-    glGenTextures(1, &volumeVelocity3D);
-    glBindTexture(GL_TEXTURE_3D, volumeVelocity3D);
-    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, 128, 128, 128);
+    unsigned int volume3DTexture;
+    glGenTextures(1, &volume3DTexture);
+    glBindTexture(GL_TEXTURE_3D, volume3DTexture);
+    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, gridSizeX, gridSizeY, gridSizeZ);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
     float borderColor[] = {0.0f, 0.0f, 0.0f, 1.0f};
-    glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, borderColor);
-    unsigned int volumePressure3D;
-    glGenTextures(1, &volumePressure3D);
-    glBindTexture(GL_TEXTURE_3D, volumePressure3D);
-    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, 128, 128, 128);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
     glTexParameterfv(GL_TEXTURE_3D, GL_TEXTURE_BORDER_COLOR, borderColor);
     glBindTexture(GL_TEXTURE_3D, 0);
     unsigned int volumeVAO, volumeVBO;
@@ -797,6 +796,7 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
 
     itemChangedPtr = &itemChanged;
     runningPtr = &running;
+    displayingPressure = &displayPressure;
 
     char* vertexShaderSource = getShaders(vertexShaderPath);
     char* fragmentShaderSource = getShaders(fragmentShaderPath);
@@ -857,34 +857,23 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         drawObject(shieldTextures, shaderProgram, shieldVAO, shieldIndexCount);
         glDepthMask(GL_TRUE);
 
-        static std::vector<float> speedData(128 * 128 * 128);
-        for(int z=0; z<128; z++){
-            for(int y=0; y<128; y++){
-                for(int x=0; x<128; x++){
-                    int index = z * 128 * 128 + y * 128 + x;
-                    float vx = velocityField[index * 3 + 0];
-                    float vy = velocityField[index * 3 + 1];
-                    float vz = velocityField[index * 3 + 2];
-                    speedData[index] = sqrt(vx * vx + vy * vy + vz * vz);
+        static std::vector<float> volumeData(gridSizeX * gridSizeY * gridSizeZ);
+        for(int z=0; z<gridSizeZ; z++){
+            for(int y=0; y<gridSizeY; y++){
+                for(int x=0; x<gridSizeX; x++){
+                    int index = z * gridSizeX * gridSizeY + y * gridSizeX + x;
+                    if(displayPressure) volumeData[index] = pressureField[index];
+                    else{
+                        float vx = velocityField[index * 3 + 0];
+                        float vy = velocityField[index * 3 + 1];
+                        float vz = velocityField[index * 3 + 2];
+                        volumeData[index] = sqrt(vx * vx + vy * vy + vz * vz);
+                    }
                 }
             }
         }
-        glBindTexture(GL_TEXTURE_3D, volumeVelocity3D);
-        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 128, 128, 128, GL_RED, GL_FLOAT, speedData.data());
-        static std::vector<float> pressureData(128 * 128 * 128);
-        for(int z=0; z<128; z++){
-            for(int y=0; y<128; y++){
-                for(int x=0; x<128; x++){
-                    int index = z * 128 * 128 + y * 128 + x;
-                    float vx = velocityField[index * 3 + 0];
-                    float vy = velocityField[index * 3 + 1];
-                    float vz = velocityField[index * 3 + 2];
-                    pressureData[index] = sqrt(vx * vx + vy * vy + vz * vz);
-                }
-            }
-        }
-        glBindTexture(GL_TEXTURE_3D, volumePressure3D);
-        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, 128, 128, 128, GL_RED, GL_FLOAT, pressureData.data());
+        glBindTexture(GL_TEXTURE_3D, volume3DTexture);
+        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, volumeData.data());
         glBindTexture(GL_TEXTURE_3D, 0);
 
         glUseProgram(volumeShaderProgram);
@@ -893,18 +882,16 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
         glUniformMatrix4fv(glGetUniformLocation(volumeShaderProgram, "view"), 1, GL_FALSE, &view[0][0]);
         glUniformMatrix4fv(glGetUniformLocation(volumeShaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
         glUniform3fv(glGetUniformLocation(volumeShaderProgram, "camPos"), 1, &camPos[0]);
-        glUniform1i(glGetUniformLocation(volumeShaderProgram, "velocityTex"), 0);
-        glUniform1i(glGetUniformLocation(volumeShaderProgram, "pressureTex"), 1);
-        glUniform3f(glGetUniformLocation(volumeShaderProgram, "gridSize"), 128.0f, 128.0f, 128.0f);
+        glUniform1i(glGetUniformLocation(volumeShaderProgram, "volumeTex"), 0);
+        glUniform1i(glGetUniformLocation(volumeShaderProgram, "displayPressure"), displayPressure ? 1 : 0);
+        glUniform3f(glGetUniformLocation(volumeShaderProgram, "gridSize"), (float) gridSizeX, (float) gridSizeY, (float) gridSizeZ);
         glUniform1f(glGetUniformLocation(volumeShaderProgram, "stepSize"), 1.0 / 128.0f);
 
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "worldMin"), worldMinX, worldMinY, worldMinZ);
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "worldMax"), worldMaxX, worldMaxY, worldMaxZ);
 
         glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_3D, volumeVelocity3D);
-        glActiveTexture(GL_TEXTURE1);
-        glBindTexture(GL_TEXTURE_3D, volumePressure3D);
+        glBindTexture(GL_TEXTURE_3D, volume3DTexture);
         glBindVertexArray(volumeVAO);
         glDrawElements(GL_TRIANGLES, 36, GL_UNSIGNED_INT, 0);
         glBindVertexArray(0);
@@ -954,6 +941,9 @@ int startRenderer(bool& gpuEnabled, bool& topFanEnabled, bool& cpuFanEnabled, bo
                 }
                 else sliderYPositions[i] = -1;
             }
+            drawText(textProgram, textVAO, textVBO, "Show Pressure", glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 450.0f), 0.3f, glm::vec3(0.0f));
+            drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - 450.0f), glm::vec2(20.0f), displayPressure, checkboxCheckedTexture, checkboxUncheckedTexture);
+            drawText(textProgram, textVAO, textVBO, displayPressure ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 50.0f, SCR_HEIGHT - 450.0f), 0.3f, glm::vec3(0.0f));
             drawSprite(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 220.0f, SCR_HEIGHT - 500.0f), glm::vec2(200.0f, 450.0f), glm::vec3(1.0f), windowTexture);
         }
         else drawSprite(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 25.0f, SCR_HEIGHT - 50.0f), glm::vec2(20.0f), glm::vec3(1.0f), uiOpenTexture);

@@ -17,8 +17,8 @@ __host__ __device__ static inline int idx3D(int x, int y, int z, int gridSizeX, 
         } \
     } while (0)
 
-constexpr int gridSizeX = 128;
-constexpr int gridSizeY = 128;
+constexpr int gridSizeX = 64;
+constexpr int gridSizeY = 256;
 constexpr int gridSizeZ = 128;
 constexpr float worldMinX = -2.0f;
 constexpr float worldMaxX = 2.0f;
@@ -530,10 +530,8 @@ extern "C" void runFluidSimulation(
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaMemcpy(d_velocityField, d_tempVelocity, numCells * 3 * sizeof(float), cudaMemcpyDeviceToDevice));
-    float* d_pressureFieldTemp = simMem.getPressureFieldTemp();
-    CUDA_CHECK(cudaMalloc(&d_pressureFieldTemp, numCells * sizeof(float)));
     solvePressureProjection(
-        d_velocityField, d_pressureFieldTemp, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
+        d_velocityField, d_pressureField, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
     );
-    CUDA_CHECK(cudaMemcpy(d_pressureField, d_pressureFieldTemp, numCells * sizeof(float), cudaMemcpyDeviceToDevice));
+    CUDA_CHECK(cudaMemcpy(d_pressureField, d_pressureField, numCells * sizeof(float), cudaMemcpyDeviceToDevice));
 }

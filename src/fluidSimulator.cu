@@ -37,7 +37,7 @@ constexpr float pressureTolerance = 1e-4f;
 constexpr float thermalDiffusivity = 0.02f;
 constexpr float ambientTemperature = 20.0f;
 constexpr float coolingRate = 0.001f;
-constexpr float heatSourceStrength = 5.0f;
+constexpr float heatSourceStrength = 20.0f;
 
 class CudaMemoryPool{
 private:

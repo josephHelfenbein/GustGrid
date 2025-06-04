@@ -87,6 +87,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
                     float worldX = -2.0f + (x + 0.5f) * cellSizeX;
                     int index = idx3D(x, y, z, gridSizeX, gridSizeY);
                     bool insideSolid = false;
+                    float heatSource = 0.0f;
 
                     // case
                     if((worldY < -4.22f && worldZ > 0.5f) || (worldZ > -1.8f && worldY < -4.26f && worldY > -4.22f) || (worldY > 4.4f && worldZ > -3.65 && worldZ < -0.65)) insideSolid = true;
@@ -99,16 +100,18 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
                     h_solidGrid[index] = insideSolid ? 1 : 0;
 
                      // ram
-                    if(worldX < -0.95f && worldX > -1.57f && worldY < 3.6f && worldY > 1.2f && worldZ < 0.6f && worldZ > 0.18f) h_heatSources[index] = 1.0f;
+                    if(worldX < -0.95f && worldX > -1.57f && worldY < 3.6f && worldY > 1.2f && worldZ < 0.6f && worldZ > 0.18f) heatSource = 1.0f;
 
                     // gpu
-                    if(gpuEnabled && ((worldZ > -0.53f && worldZ < -0.46f) || (worldZ > 1.85f && worldZ < 1.95) || worldZ > 3.5) && worldY > 0.54f && worldY < 1.09f && worldX < 0.5f) h_heatSources[index] = 1.0f;
+                    if(gpuEnabled && worldZ > -0.53f && worldZ < 3.7 && worldY > 0.8f && worldY < 1.09f && worldX < 0.5f) heatSource = 1.0f;
 
                     // cpu
-                    if(worldZ > 1.2f && worldZ < 1.9f && worldY < 2.7f && worldY > 2.0f && worldX < -1.2 && worldX > -1.7) h_heatSources[index] = 1.0f;
+                    if(worldZ > 1.2f && worldZ < 1.9f && worldY < 2.7f && worldY > 2.0f && worldX < -1.2 && worldX > -1.7) heatSource = 1.0f;
 
                     // psu
-                    if(worldY < -2.2f && worldY > -2.8f && worldZ > 0.4f && worldZ < 3.6f && worldX < 1.4f && worldX > -1.4f) h_heatSources[index] = 1.0f;
+                    if(worldY < -2.2f && worldY > -2.6f && worldZ > 0.4f && worldZ < 3.6f && worldX < 1.4f && worldX > -1.4f) heatSource = 1.0f;
+
+                    h_heatSources[index] = heatSource;
                 }
             }
         }
@@ -120,7 +123,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
         h_fanDirections.clear();
         if(topFanEnabled){
             float3 topPos = make_float3(-0.22f, 4.2f, 1.6f);
-            float3 topDir = make_float3(0.0f, -1.0f, 0.0f);
+            float3 topDir = make_float3(0.0f, 1.0f, 0.0f);
             h_fanPositions.push_back(topPos);
             h_fanDirections.push_back(topDir);
         }

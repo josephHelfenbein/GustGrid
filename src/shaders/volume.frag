@@ -34,16 +34,23 @@ void main(){
         if(any(lessThan(currentTexCoord, vec3(0.0))) || any(greaterThan(currentTexCoord, vec3(1.0)))) break;
         
         float volumeVal = texture(volumeTex, currentTexCoord).r;
-        float a = clamp(volumeVal * stepSize * opacity, 0.0, 1.0);
-        float tempFactor = texture(temperatureTex, currentTexCoord).r;
+        float tempValue = texture(temperatureTex, currentTexCoord).r;
+
+        float ambientTemp = 22.0;
+        float maxExpectedTemp = 90.0;
+        float normalizedTemp = clamp((tempValue - ambientTemp) / (maxExpectedTemp - ambientTemp), 0.0, 1.0);
+
+        float tempAlpha = normalizedTemp * 0.001;
+        float volumeAlpha = clamp(volumeVal * stepSize * opacity, 0.0, 1.0);
+        float totalAlpha = max(volumeAlpha, tempAlpha);
         vec3 color = mix(
             vec3(0.0, 0.0, 1.0),
             vec3(1.0, 0.0, 0.0),
-            tempFactor
+            normalizedTemp
         );
-        
-        accumAlpha += (1.0 - accumAlpha) * a;
-        accumColor += color * a;
+        float alphaToAdd = totalAlpha * (1.0 - accumAlpha);
+        accumAlpha += alphaToAdd;
+        accumColor += color * alphaToAdd;
         
         if(accumAlpha > 0.95) break;
         

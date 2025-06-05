@@ -4,17 +4,8 @@
 #include <cuda_runtime.h>
 #include <cstring>
 #include <functional>
-
-extern void runFluidSimulation(
-    int gridSizeX, int gridSizeY, int gridSizeZ,
-    float* d_velocityField,
-    float* d_pressureField,
-    unsigned char* d_solidGrid,
-    float3* d_fanPositions,
-    float3* d_fanDirections,
-    int numFans,
-    float dt
-);
+#include <cmath>
+#include <algorithm>
 
 static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
     return x + y * gridSizeX + z * gridSizeX * gridSizeY;
@@ -100,16 +91,16 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
                     h_solidGrid[index] = insideSolid ? 1 : 0;
 
                      // ram
-                    if(worldX < -0.95f && worldX > -1.57f && worldY < 3.6f && worldY > 1.2f && worldZ < 0.6f && worldZ > 0.18f) heatSource = 1.0f;
+                    if(worldX < -0.95f && worldX > -1.57f && worldY < 3.6f && worldY > 1.2f && worldZ < 0.6f && worldZ > 0.18f) heatSource = 0.04f / 0.62;
 
                     // gpu
-                    if(gpuEnabled && worldZ > -0.53f && worldZ < 3.7 && worldY > 0.8f && worldY < 1.09f && worldX < 0.5f) heatSource = 1.0f;
+                    if(gpuEnabled && worldZ > -0.53f && worldZ < 3.7 && worldY > 0.8f && worldY < 1.09f && worldX < 0.5f) heatSource = 2.0f / 1.6f;
 
                     // cpu
-                    if(worldZ > 1.2f && worldZ < 1.9f && worldY < 2.7f && worldY > 2.0f && worldX < -1.2 && worldX > -1.7) heatSource = 1.0f;
+                    if(worldZ > 1.2f && worldZ < 1.9f && worldY < 2.7f && worldY > 2.0f && worldX < -1.2 && worldX > -1.7) heatSource = 0.8f / 0.25f;
 
                     // psu
-                    if(worldY < -2.2f && worldY > -2.6f && worldZ > 0.4f && worldZ < 3.6f && worldX < 1.4f && worldX > -1.4f) heatSource = 1.0f;
+                    if(worldY < -2.2f && worldY > -2.6f && worldZ > 0.4f && worldZ < 3.6f && worldX < 1.4f && worldX > -1.4f) heatSource = 0.28f / 3.6f;
 
                     h_heatSources[index] = heatSource;
                 }

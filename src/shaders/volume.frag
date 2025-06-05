@@ -30,24 +30,30 @@ void main(){
 
     float opacity = displayPressure == 1 ? 0.05 : 0.002;
 
+    float ambientTemp = 22.0;
+    float maxExpectedTemp = 100.0;
+    float midTemp = (ambientTemp + maxExpectedTemp) * 0.5;
+
     for(int i = 0; i < maxSteps; i++){
         if(any(lessThan(currentTexCoord, vec3(0.0))) || any(greaterThan(currentTexCoord, vec3(1.0)))) break;
         
         float volumeVal = texture(volumeTex, currentTexCoord).r;
         float tempValue = texture(temperatureTex, currentTexCoord).r;
 
-        float ambientTemp = 22.0;
-        float maxExpectedTemp = 90.0;
         float normalizedTemp = clamp((tempValue - ambientTemp) / (maxExpectedTemp - ambientTemp), 0.0, 1.0);
 
         float tempAlpha = normalizedTemp * 0.001;
         float volumeAlpha = clamp(volumeVal * stepSize * opacity, 0.0, 1.0);
         float totalAlpha = max(volumeAlpha, tempAlpha);
-        vec3 color = mix(
-            vec3(0.0, 0.0, 1.0),
-            vec3(1.0, 0.0, 0.0),
-            normalizedTemp
-        );
+        vec3 color = vec3(0.0);
+        if(normalizedTemp<0.5){
+            color += mix(vec3(0.0, 0.0, 0.0), vec3(0.0, 1.0, 0.0), normalizedTemp*2.0);
+            color += mix(vec3(0.0, 0.0, 1.0), vec3(0.0, 0.0, 0.0), normalizedTemp*2.0);
+        }
+        else{
+            color += mix(vec3(0.0, 0.0, 0.0), vec3(1.0, 0.0, 0.0), (normalizedTemp - 0.5) * 2.0);
+            color += mix(vec3(0.0, 1.0, 0.0), vec3(0.0, 0.0, 0.0), (normalizedTemp - 0.5) * 2.0);
+        }
         float alphaToAdd = totalAlpha * (1.0 - accumAlpha);
         accumAlpha += alphaToAdd;
         accumColor += color * alphaToAdd;

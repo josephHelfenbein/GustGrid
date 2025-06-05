@@ -24,6 +24,7 @@
 #define uiWindowSource "./src/textures/ui/uiWindow.png"
 #define uiCloseSource "./src/textures/ui/toggle/close.png"
 #define uiOpenSource "./src/textures/ui/toggle/open.png"
+#define thermalMapSource "./src/textures/ui/thermalmap.png"
 #define caseSource "./src/models/case.obj"
 #define cpuSource "./src/models/cpu.obj"
 #define gpuSource "./src/models/gpu.obj"
@@ -577,7 +578,7 @@ void drawArrowInput(unsigned int shader, unsigned int VAO, unsigned int VBO, glm
     glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
-int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady, bool &displayPressure, float* temperatureField){
+int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady, bool &displayPressure, float* temperatureField, double& stepsPerSecond){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
         return -1;
@@ -735,6 +736,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     unsigned int windowTexture = loadTexture(uiWindowSource);
     unsigned int uiCloseTexture = loadTexture(uiCloseSource);
     unsigned int uiOpenTexture = loadTexture(uiOpenSource);
+    unsigned int thermalMapTexture = loadTexture(thermalMapSource);
 
     unsigned int volume3DTexture;
     glGenTextures(1, &volume3DTexture);
@@ -971,6 +973,17 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
             drawSprite(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 220.0f, SCR_HEIGHT - 500.0f), glm::vec2(200.0f, 450.0f), glm::vec3(1.0f), windowTexture);
         }
         else drawSprite(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 25.0f, SCR_HEIGHT - 50.0f), glm::vec2(20.0f), glm::vec3(1.0f), uiOpenTexture);
+        char fpsText[7];
+        int fps = (int)(1.0f / deltaTime);
+        snprintf(fpsText, sizeof(fpsText), "%d FPS", fps);
+        drawText(textProgram, textVAO, textVBO, fpsText, glm::vec2(30.0f, SCR_HEIGHT - 30.0f), 0.4f, glm::vec3(1.0f));
+        char spsText[10];
+        snprintf(spsText, sizeof(spsText), "%0.2f SPS", stepsPerSecond);
+        drawText(textProgram, textVAO, textVBO, spsText, glm::vec2(30.0f, SCR_HEIGHT - 60.0f), 0.4f, glm::vec3(1.0f));
+        drawSprite(uiProgram, spriteVAO, spriteVBO, glm::vec2(30.0f, SCR_HEIGHT - 120.0f), glm::vec2(20.0f, -300.0f), glm::vec3(1.0f), thermalMapTexture);
+        drawText(textProgram, textVAO, textVBO, "22°C", glm::vec2(55.0f, SCR_HEIGHT - 420.0f), 0.3f, glm::vec3(1.0f));
+        drawText(textProgram, textVAO, textVBO, "61°C", glm::vec2(55.0f, SCR_HEIGHT - 270.0f), 0.3f, glm::vec3(1.0f));
+        drawText(textProgram, textVAO, textVBO, "100°C", glm::vec2(55.0f, SCR_HEIGHT - 130.0f), 0.3f, glm::vec3(1.0f));
         glBindVertexArray(0);
 
         glfwSwapBuffers(window);

@@ -22,6 +22,7 @@ float* temperatureField = new float[numCells]();
 bool itemChanged = false;
 bool running = true;
 bool displayPressure = false;
+double stepsPerSecond = 1.0;
 
 std::mutex velocityFieldMutex;
 std::condition_variable velocityFieldReady;
@@ -48,10 +49,10 @@ void waitForItems(){
     itemsReady.wait(lock, []{ return itemsReadyFlag.load(); });
 }
 int rendererWrapper(){
-    return startRenderer(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, waitForVelocityField, signalItemsReady, displayPressure, temperatureField);
+    return startRenderer(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, waitForVelocityField, signalItemsReady, displayPressure, temperatureField, stepsPerSecond);
 }
 int simulatorWrapper(){
-    return startSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, signalVelocityFieldReady, waitForItems, displayPressure, temperatureField);
+    return startSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, velocityField, pressureField, itemChanged, running, signalVelocityFieldReady, waitForItems, displayPressure, temperatureField, stepsPerSecond);
 }
 
 int main(int argc, char* argv[]){

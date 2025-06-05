@@ -6,6 +6,7 @@
 #include <functional>
 #include <cmath>
 #include <algorithm>
+#include <chrono>
 
 static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
     return x + y * gridSizeX + z * gridSizeX * gridSizeY;
@@ -25,7 +26,7 @@ static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
 #define gridSizeZ 128
 const int numCells = (gridSizeX * gridSizeY * gridSizeZ);
 
-int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> signalVelocityFieldReady, std::function<void()> waitForItems, bool &displayPressure, float* temperatureField){
+int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> signalVelocityFieldReady, std::function<void()> waitForItems, bool &displayPressure, float* temperatureField, double& stepsPerSecond){
     waitForItems();
     std::vector<unsigned char> h_solidGrid(numCells, 0);
     std::vector<float> h_heatSources(numCells, 0.0f);
@@ -183,6 +184,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
     CUDA_CHECK(cudaMemcpy(h_pressure.data(), d_pressureField, pressureFieldSize, cudaMemcpyDeviceToHost));
     std::memcpy(pressureField, h_pressure.data(), pressureFieldSize);
     signalVelocityFieldReady();
+    std::chrono::steady_clock::time_point lastTime = std::chrono::steady_clock::now();
     while(running){
         if(itemChanged)
         if(!gpuEnabled || !prevGpuEnabled || !topFanEnabled || !prevTopFanEnabled || !cpuFanEnabled || !prevCpuFanEnabled || !frontFanEnabled || !prevFrontFanEnabled
@@ -218,6 +220,10 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
             CUDA_CHECK(cudaMemcpy(h_velocity.data(), d_velocityField, velocityFieldSize, cudaMemcpyDeviceToHost));
             std::memcpy(velocityField, h_velocity.data(), velocityFieldSize);
         }
+        std::chrono::steady_clock::time_point currTime = std::chrono::steady_clock::now();
+        std::chrono::duration<double> elapsedSeconds = currTime - lastTime;
+        lastTime = currTime;
+        stepsPerSecond = 1.0 / elapsedSeconds.count();
     }
     CUDA_CHECK(cudaFree(d_velocityField));
     CUDA_CHECK(cudaFree(d_pressureField));

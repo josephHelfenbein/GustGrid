@@ -165,6 +165,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
     bool prevFrontFanEnabled = frontFanEnabled;
     float prevBackFanLocations[3] = {backFanLocations[0], backFanLocations[1], backFanLocations[2]};
     float dt = 1 / 60.0f; // 60 FPS limit
+    initializeConstantsExtern(gridSizeX, gridSizeY, gridSizeZ);
     runFluidSimulation(
         gridSizeX, gridSizeY, gridSizeZ,
         d_velocityField,

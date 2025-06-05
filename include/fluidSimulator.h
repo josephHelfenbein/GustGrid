@@ -13,3 +13,7 @@ extern "C" void runFluidSimulation(
     int numFans,
     float dt
 );
+
+extern "C" void initializeConstantsExtern(
+    int gridSizeX, int gridSizeY, int gridSizeZ
+);

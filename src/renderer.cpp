@@ -809,6 +809,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     itemChangedPtr = &itemChanged;
     runningPtr = &running;
     displayingPressure = &displayPressure;
+    int totalCells = gridSizeX * gridSizeY * gridSizeZ;
 
     char* vertexShaderSource = getShaders(vertexShaderPath);
     char* fragmentShaderSource = getShaders(fragmentShaderPath);
@@ -869,34 +870,11 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         drawObject(shieldTextures, shaderProgram, shieldVAO, shieldIndexCount);
         glDepthMask(GL_TRUE);
 
-        static std::vector<float> volumeData(gridSizeX * gridSizeY * gridSizeZ);
-        for(int z=0; z<gridSizeZ; z++){
-            for(int y=0; y<gridSizeY; y++){
-                for(int x=0; x<gridSizeX; x++){
-                    int index = z * gridSizeX * gridSizeY + y * gridSizeX + x;
-                    if(displayPressure) volumeData[index] = pressureField[index];
-                    else{
-                        float vx = velocityField[index * 3 + 0];
-                        float vy = velocityField[index * 3 + 1];
-                        float vz = velocityField[index * 3 + 2];
-                        volumeData[index] = sqrt(vx * vx + vy * vy + vz * vz);
-                    }
-                }
-            }
-        }
         glBindTexture(GL_TEXTURE_3D, volume3DTexture);
-        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, volumeData.data());
-        static std::vector<float> temperatureData(gridSizeX * gridSizeY * gridSizeZ);
-        for(int z=0; z<gridSizeZ; z++){
-            for(int y=0; y<gridSizeY; y++){
-                for(int x=0; x<gridSizeX; x++){
-                    int index = z * gridSizeX * gridSizeY + y * gridSizeX + x;
-                    temperatureData[index] = temperatureField[index];
-                }
-            }
-        }
+        if(displayPressure) glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, &pressureField[0]);
+        else glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, &velocityField[0]);
         glBindTexture(GL_TEXTURE_3D, temperature3DTexture);
-        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, temperatureData.data());
+        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, &temperatureField[0]);
         glBindTexture(GL_TEXTURE_3D, 0);
 
         glUseProgram(volumeShaderProgram);
@@ -909,7 +887,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         glUniform1i(glGetUniformLocation(volumeShaderProgram, "temperatureTex"), 1);
         glUniform1i(glGetUniformLocation(volumeShaderProgram, "displayPressure"), displayPressure ? 1 : 0);
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "gridSize"), (float) gridSizeX, (float) gridSizeY, (float) gridSizeZ);
-        glUniform1f(glGetUniformLocation(volumeShaderProgram, "stepSize"), 1.0 / 128.0f);
+        glUniform1f(glGetUniformLocation(volumeShaderProgram, "stepSize"), 1.0 / 64.0f);
 
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "worldMin"), worldMinX, worldMinY, worldMinZ);
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "worldMax"), worldMaxX, worldMaxY, worldMaxZ);

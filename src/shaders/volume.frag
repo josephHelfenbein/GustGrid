@@ -21,8 +21,8 @@ void main(){
     vec3 worldSize = worldMax - worldMin;
     vec3 voxelSize = worldSize / gridSize;
 
-    float minVoxelDim = min(min(voxelSize.x, voxelSize.y), voxelSize.z);
-    float worldStep = minVoxelDim * stepSize;
+    float maxVoxelDim = max(max(voxelSize.x, voxelSize.y), voxelSize.z);
+    float worldStep = maxVoxelDim * stepSize;
     vec3 currentWorldPos = FragPos;
     vec3 currentTexCoord = texCoord;
 
@@ -39,6 +39,11 @@ void main(){
         
         float volumeVal = texture(volumeTex, currentTexCoord).r;
         float tempValue = texture(temperatureTex, currentTexCoord).r;
+        if(volumeVal < 1e-4 && tempValue < ambientTemp + 0.1){
+            currentWorldPos += rayDir * worldStep;
+            currentTexCoord = (currentWorldPos - worldMin) / (worldMax - worldMin);
+            continue;
+        }
 
         float normalizedTemp = clamp((tempValue - ambientTemp) / (maxExpectedTemp - ambientTemp), 0.0, 1.0);
 

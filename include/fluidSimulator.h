@@ -4,6 +4,7 @@
 extern "C" void runFluidSimulation(
     int gridSizeX, int gridSizeY, int gridSizeZ,
     float* d_velocityField,
+    float* d_speedField,
     float* d_pressureField,
     unsigned char* d_solidGrid,
     float3* d_fanPositions,

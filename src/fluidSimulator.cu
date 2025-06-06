@@ -681,9 +681,25 @@ __global__ void advectVelocityKernel(
     }
 }
 
+__global__ void velocityToSpeed(
+    const float* __restrict__ velocity,
+    float* __restrict__ speed
+){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= c_GX || j >= c_GY || k >= c_GZ) return; 
+    int idx = idx3D(i, j, k, c_GX, c_GY);
+    const float3* __restrict__ vel3 = reinterpret_cast<const float3*>(velocity);
+    float3 v = vel3[idx];
+    float mag = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    speed[idx] = mag;
+}
+
 extern "C" void runFluidSimulation(
     int gridSizeX, int gridSizeY, int gridSizeZ,
     float* d_velocityField,
+    float* d_speedField,
     float* d_pressureField,
     unsigned char* d_solidGrid,
     float3* d_fanPositions,
@@ -717,6 +733,10 @@ extern "C" void runFluidSimulation(
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaMemcpy(d_velocityField, d_tempVelocity, numCells * 3 * sizeof(float), cudaMemcpyDeviceToDevice));
+    velocityToSpeed<<<grid, block>>>(
+        d_velocityField, d_speedField
+    );
+    CUDA_CHECK(cudaDeviceSynchronize());
     solvePressureProjection(
         d_velocityField, d_pressureField, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
     );

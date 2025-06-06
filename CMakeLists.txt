@@ -17,12 +17,29 @@ message(STATUS "CUDA version: ${CUDAToolkit_VERSION}")
 message(STATUS "CUDA include dirs: ${CUDAToolkit_INCLUDE_DIRS}")
 message(STATUS "CUDA library dirs: ${CUDAToolkit_LIBRARY_DIR}")
 
+find_package(OpenMP)
+if (OpenMP_CXX_FOUND)
+    message(STATUS "OpenMP support found: ${OpenMP_CXX_FLAGS}")
+else()
+    message(WARNING "OpenMP_CXX not found. Building without OpenMP.")
+endif()
+
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
+set(CMAKE_CXX_FLAGS_RELEASE  "-O3 -march=native -DNDEBUG")
+set(CMAKE_CUDA_FLAGS_RELEASE "-O3 --use_fast_math -DNDEBUG")
+
+set(CMAKE_C_FLAGS_DEBUG   "${CMAKE_C_FLAGS_DEBUG} ${CMAKE_CXX_FLAGS_DEBUG}")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
+set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG}")
+
+set(CMAKE_C_FLAGS_RELEASE   "${CMAKE_C_FLAGS_RELEASE} ${CMAKE_CXX_FLAGS_RELEASE}")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE}")
 
 set(CMAKE_CUDA_ARCHITECTURES "60;70;75;80;86")
 
@@ -80,6 +97,7 @@ target_link_libraries(${PROJECT_NAME}
     CUDA::cublas
     CUDA::cufft
     CUDA::cusparse
+    $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
 )
 
 if(NOT TARGET CUDA::cudart)

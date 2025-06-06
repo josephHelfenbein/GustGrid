@@ -7,6 +7,7 @@
 #include <cmath>
 #include <algorithm>
 #include <chrono>
+#include <omp.h>
 
 static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
     return x + y * gridSizeX + z * gridSizeX * gridSizeY;
@@ -26,7 +27,7 @@ static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
 #define gridSizeZ 128
 const int numCells = (gridSizeX * gridSizeY * gridSizeZ);
 
-int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> signalVelocityFieldReady, std::function<void()> waitForItems, bool &displayPressure, float* temperatureField, double& stepsPerSecond){
+int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* volumeField, bool &itemChanged, bool &running, std::function<void()> signalVelocityFieldReady, std::function<void()> waitForItems, bool &displayPressure, float* temperatureField, double& stepsPerSecond){
     waitForItems();
     std::vector<unsigned char> h_solidGrid(numCells, 0);
     std::vector<float> h_heatSources(numCells, 0.0f);
@@ -45,8 +46,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
     unsigned char* d_solidGrid = nullptr;
     size_t solidGridSize = numCells * sizeof(unsigned char);
     size_t pressureFieldSize = numCells * sizeof(float);
-    std::vector<float> h_velocity(numCells * 3, 0.0f);
-    std::vector<float> h_pressure(numCells, 0.0f);
+    std::vector<float> h_volume(numCells, 0.0f);
     std::vector<float> h_temperature(numCells, 0.0f);
     size_t fanPositionsSize = maxFanCount * sizeof(float3);
     size_t fanDirectionsSize = maxFanCount * sizeof(float3);
@@ -73,12 +73,13 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
     const float cellSizeZ = 8.0f / gridSizeZ;
 
     auto fillOccupancy = [&](){
+        #pragma omp parallel for collapse(3)
         for(int z=0; z<gridSizeZ; z++){
-            float worldZ = -4.0f + (z + 0.5f) * cellSizeZ;
             for(int y=0; y<gridSizeY; y++){
-                float worldY = -4.5f + (y + 0.5f) * cellSizeY;
                 for(int x=0; x<gridSizeX; x++){
                     float worldX = -2.0f + (x + 0.5f) * cellSizeX;
+                    float worldY = -4.5f + (y + 0.5f) * cellSizeY;
+                    float worldZ = -4.0f + (z + 0.5f) * cellSizeZ;
                     int index = idx3D(x, y, z, gridSizeX, gridSizeY);
                     bool insideSolid = false;
                     float heatSource = 0.0f;
@@ -161,11 +162,6 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
     };
     buildFanLists();
     
-    bool prevGpuEnabled = gpuEnabled;
-    bool prevTopFanEnabled = topFanEnabled;
-    bool prevCpuFanEnabled = cpuFanEnabled;
-    bool prevFrontFanEnabled = frontFanEnabled;
-    float prevBackFanLocations[3] = {backFanLocations[0], backFanLocations[1], backFanLocations[2]};
     float dt = 1 / 60.0f; // 60 FPS limit
     initializeConstantsExtern(gridSizeX, gridSizeY, gridSizeZ);
     runFluidSimulation(
@@ -183,23 +179,15 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
     );
     CUDA_CHECK(cudaMemcpy(h_temperature.data(), d_temperature, pressureFieldSize, cudaMemcpyDeviceToHost));
     std::memcpy(temperatureField, h_temperature.data(), pressureFieldSize);
-    CUDA_CHECK(cudaMemcpy(h_velocity.data(), d_speedField, pressureFieldSize, cudaMemcpyDeviceToHost));
-    std::memcpy(velocityField, h_velocity.data(), pressureFieldSize);
-    CUDA_CHECK(cudaMemcpy(h_pressure.data(), d_pressureField, pressureFieldSize, cudaMemcpyDeviceToHost));
-    std::memcpy(pressureField, h_pressure.data(), pressureFieldSize);
+    if(!displayPressure) CUDA_CHECK(cudaMemcpy(h_volume.data(), d_speedField, pressureFieldSize, cudaMemcpyDeviceToHost));
+    else CUDA_CHECK(cudaMemcpy(h_volume.data(), d_pressureField, pressureFieldSize, cudaMemcpyDeviceToHost));
+    std::memcpy(volumeField, h_volume.data(), pressureFieldSize);
     signalVelocityFieldReady();
     std::chrono::steady_clock::time_point lastTime = std::chrono::steady_clock::now();
     while(running){
-        if(itemChanged)
-        if(!gpuEnabled || !prevGpuEnabled || !topFanEnabled || !prevTopFanEnabled || !cpuFanEnabled || !prevCpuFanEnabled || !frontFanEnabled || !prevFrontFanEnabled
-           || backFanLocations[0] != prevBackFanLocations[0] || backFanLocations[1] != prevBackFanLocations[1] || backFanLocations[2] != prevBackFanLocations[2]){
+        if(itemChanged){
             fillOccupancy();
             buildFanLists();
-            prevGpuEnabled = gpuEnabled;
-            prevTopFanEnabled = topFanEnabled;
-            prevCpuFanEnabled = cpuFanEnabled;
-            prevFrontFanEnabled = frontFanEnabled;
-            for(int i=0; i<3; i++) prevBackFanLocations[i] = backFanLocations[i];
             itemChanged = false;
         }
         runFluidSimulation(
@@ -217,14 +205,9 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
         );
         CUDA_CHECK(cudaMemcpy(h_temperature.data(), d_temperature, pressureFieldSize, cudaMemcpyDeviceToHost));
         std::memcpy(temperatureField, h_temperature.data(), pressureFieldSize);
-        if(displayPressure){
-            CUDA_CHECK(cudaMemcpy(h_pressure.data(), d_pressureField, pressureFieldSize, cudaMemcpyDeviceToHost));
-            std::memcpy(pressureField, h_pressure.data(), pressureFieldSize);
-        }
-        else{
-            CUDA_CHECK(cudaMemcpy(h_velocity.data(), d_speedField, pressureFieldSize, cudaMemcpyDeviceToHost));
-            std::memcpy(velocityField, h_velocity.data(), pressureFieldSize);
-        }
+        if(!displayPressure) CUDA_CHECK(cudaMemcpy(h_volume.data(), d_speedField, pressureFieldSize, cudaMemcpyDeviceToHost));
+        else CUDA_CHECK(cudaMemcpy(h_volume.data(), d_pressureField, pressureFieldSize, cudaMemcpyDeviceToHost));
+        std::memcpy(volumeField, h_volume.data(), pressureFieldSize);
         std::chrono::steady_clock::time_point currTime = std::chrono::steady_clock::now();
         std::chrono::duration<double> elapsedSeconds = currTime - lastTime;
         lastTime = currTime;

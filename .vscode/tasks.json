@@ -7,7 +7,7 @@
             "command": "cmake",
             "args": [
                 "-B",
-                "build",
+                "build/debug",
                 "-DCMAKE_BUILD_TYPE=Debug"
             ],
             "options": {
@@ -22,7 +22,7 @@
             "command": "cmake",
             "args": [
                 "--build",
-                "build",
+                "build/debug",
                 "--config",
                 "Debug"
             ],
@@ -34,6 +34,38 @@
                 "isDefault": true
             },
             "dependsOn": "CMake Configure",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "type": "shell",
+            "label": "CMake Configure Release",
+            "command": "cmake",
+            "args": [
+                "-B",
+                "build",
+                "-DCMAKE_BUILD_TYPE=Release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "type": "shell",
+            "label": "CMake Build Release",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "build",
+                "--config",
+                "Release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "dependsOn": "CMake Configure Release",
             "problemMatcher": ["$gcc"]
         },
         {
@@ -58,6 +90,17 @@
             "dependsOn": [
                 "CMake Configure",
                 "CMake Build"
+            ],
+            "dependsOrder": "sequence",
+            "group": {"group": "build", "isDefault": true},
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake Configure + Build Release",
+            "command": "cmake",
+            "dependsOn": [
+                "CMake Configure Release",
+                "CMake Build Release"
             ],
             "dependsOrder": "sequence",
             "group": "build",

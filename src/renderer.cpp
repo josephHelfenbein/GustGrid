@@ -12,6 +12,8 @@
 #include <map>
 #include <vector>
 #include <thread>
+#include <functional>
+#include <omp.h>
 
 #define uiVertexPath "./src/shaders/ui.vert"
 #define uiFragmentPath "./src/shaders/ui.frag"
@@ -339,17 +341,20 @@ void loadModelData(const char* file, ModelData &data){
         return;
     }
     objl::Mesh mesh = loader.LoadedMeshes[0];
-    data.vertices.resize(mesh.Vertices.size() * 8);
-    int i = 0;
-    for(const auto &vertex : mesh.Vertices){
-        data.vertices[i++] = vertex.Position.X;
-        data.vertices[i++] = vertex.Position.Y;
-        data.vertices[i++] = vertex.Position.Z;
-        data.vertices[i++] = vertex.TextureCoordinate.X;
-        data.vertices[i++] = 1.0f - vertex.TextureCoordinate.Y;
-        data.vertices[i++] = vertex.Normal.X;
-        data.vertices[i++] = vertex.Normal.Y;
-        data.vertices[i++] = vertex.Normal.Z;
+    size_t vertexCount = mesh.Vertices.size();
+    data.vertices.resize(vertexCount * 8);
+    #pragma omp parallel for
+    for(size_t v=0; v<vertexCount; v++){
+        const auto &vertex = mesh.Vertices[v];
+        size_t i = v * 8;
+        data.vertices[i + 0] = vertex.Position.X;
+        data.vertices[i + 1] = vertex.Position.Y;
+        data.vertices[i + 2] = vertex.Position.Z;
+        data.vertices[i + 3] = vertex.TextureCoordinate.X;
+        data.vertices[i + 4] = 1.0f - vertex.TextureCoordinate.Y;
+        data.vertices[i + 5] = vertex.Normal.X;
+        data.vertices[i + 6] = vertex.Normal.Y;
+        data.vertices[i + 7] = vertex.Normal.Z;
     }
     data.indices = mesh.Indices;
     data.loaded = true;
@@ -438,7 +443,10 @@ void prepareCharacters(){
     }
     FT_Set_Pixel_Sizes(face, 0, 48);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    for(unsigned char c = 0; c < 128; c++){
+    FT_ULong codepoints[129];
+    for(FT_ULong c = 0; c<128; c++) codepoints[c] = c;
+    codepoints[128] = 0x00B0;
+    for(FT_ULong c : codepoints){
         if(FT_Load_Char(face, c, FT_LOAD_RENDER)){
             std::cerr<<"Failed to load glyph: "<<c<<std::endl;
             continue;
@@ -452,11 +460,11 @@ void prepareCharacters(){
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
         Character character = { 
-                                textureID, 
-                                glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
-                                glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
-                                static_cast<unsigned int>(face->glyph->advance.x)
-                              };
+            textureID, 
+            glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
+            glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
+            static_cast<unsigned int>(face->glyph->advance.x)
+        };
         Characters[c] = character;
     }
     glBindTexture(GL_TEXTURE_2D, 0);
@@ -578,7 +586,7 @@ void drawArrowInput(unsigned int shader, unsigned int VAO, unsigned int VBO, glm
     glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
-int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* velocityField, float* pressureField, bool &itemChanged, bool &running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady, bool &displayPressure, float* temperatureField, double& stepsPerSecond){
+int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* volumeField, bool &itemChanged, bool &running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady, bool &displayPressure, float* temperatureField, double& stepsPerSecond){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
         return -1;
@@ -671,23 +679,27 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     }
 
     unsigned int caseTextures[4];
-    for(int i = 0; i < 4; i++) caseTextures[i] = loadTexture(caseTexturesSource[i]);
     unsigned int cpuTextures[4];
-    for(int i = 0; i < 4; i++) cpuTextures[i] = loadTexture(cpuTexturesSource[i]);
     unsigned int gpuTextures[4];
-    for(int i = 0; i < 4; i++) gpuTextures[i] = loadTexture(gpuTexturesSource[i]);
     unsigned int ramTextures[4];
-    for(int i = 0; i < 4; i++) ramTextures[i] = loadTexture(ramTexturesSource[i]);
     unsigned int motherboardTextures[4];
-    for(int i = 0; i < 4; i++) motherboardTextures[i] = loadTexture(motherboardTexturesSource[i]);
     unsigned int psuTextures[4];
-    for(int i = 0; i < 4; i++) psuTextures[i] = loadTexture(psuTexturesSource[i]);
     unsigned int ioShieldTextures[4];
-    for(int i = 0; i < 4; i++) ioShieldTextures[i] = loadTexture(ioShieldTexturesSource[i]);
     unsigned int shieldTextures[4];
-    for(int i = 0; i < 4; i++) shieldTextures[i] = loadTexture(shieldTexturesSource[i]);
     unsigned int glassTextures[4];
-    for(int i = 0; i < 4; i++) glassTextures[i] = loadTexture(glassTexturesSource[i]);
+    for(int idx=0; idx<36; idx++){
+        int j = idx % 4;
+        int i = idx / 4;
+        if(i == 0) caseTextures[j] = loadTexture(caseTexturesSource[j]);
+        else if(i == 1) cpuTextures[j] = loadTexture(cpuTexturesSource[j]);
+        else if(i == 2) gpuTextures[j] = loadTexture(gpuTexturesSource[j]);
+        else if(i == 3) ramTextures[j] = loadTexture(ramTexturesSource[j]);
+        else if(i == 4) motherboardTextures[j] = loadTexture(motherboardTexturesSource[j]);
+        else if(i == 5) psuTextures[j] = loadTexture(psuTexturesSource[j]);
+        else if(i == 6) ioShieldTextures[j] = loadTexture(ioShieldTexturesSource[j]);
+        else if(i == 7) shieldTextures[j] = loadTexture(shieldTexturesSource[j]);
+        else if(i == 8) glassTextures[j] = loadTexture(glassTexturesSource[j]);
+    }
 
     float spriteVertices[] = {
         0.0f, 1.0f,  0.0f, 1.0f,
@@ -871,8 +883,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         glDepthMask(GL_TRUE);
 
         glBindTexture(GL_TEXTURE_3D, volume3DTexture);
-        if(displayPressure) glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, &pressureField[0]);
-        else glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, &velocityField[0]);
+        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, &volumeField[0]);
         glBindTexture(GL_TEXTURE_3D, temperature3DTexture);
         glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, &temperatureField[0]);
         glBindTexture(GL_TEXTURE_3D, 0);

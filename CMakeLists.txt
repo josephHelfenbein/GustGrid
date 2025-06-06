@@ -30,7 +30,7 @@ endif()
 
 set(CMAKE_CXX_FLAGS_DEBUG "-g")
 set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
-set(CMAKE_CXX_FLAGS_RELEASE  "-O3 -march=native -DNDEBUG")
+set(CMAKE_CXX_FLAGS_RELEASE  "-O3 -march=native -funroll-loops -ftree-vectorize -fprefetch-loop-arrays -flto -ffast-math -DNDEBUG")
 set(CMAKE_CUDA_FLAGS_RELEASE "-O3 --use_fast_math -DNDEBUG")
 
 set(CMAKE_C_FLAGS_DEBUG   "${CMAKE_C_FLAGS_DEBUG} ${CMAKE_CXX_FLAGS_DEBUG}")

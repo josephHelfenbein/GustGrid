@@ -420,33 +420,30 @@ __global__ void advectDiffusionHeatKernel(
     float airDensity = 1.225;
     float specificHeat = 1005.0f;
     float heatCapacity = airDensity * specificHeat * cellVolume;
-    float vx = velocity[idx * 3 + 0];
-    float vy = velocity[idx * 3 + 1];
-    float vz = velocity[idx * 3 + 2];
     float advectionTerm = 0.0f;
     float maxCellSize = fmaxf(fmaxf(c_cellSizeX, c_cellSizeY), c_cellSizeZ);
-    float advectionCFL = __fmul_rn(fmaxf(fmaxf(fabsf(vx), fabsf(vy)), fabsf(vz)), __fdividef(dt, maxCellSize));
+    float advectionCFL = __fmul_rn(fmaxf(fmaxf(fabsf(v.x), fabsf(v.y)), fabsf(v.z)), __fdividef(dt, maxCellSize));
     float fluxLimiter = fminf(1.0f, __fdividef(0.8f, fmaxf(advectionCFL, 1e-6f)));
-    if(__float_as_int(vx)>0&&i>0){
+    if(v.x>0&&i>0){
         int leftIdx = idx3D(i-1, j, k, c_GX, c_GY);
-        if(solidGrid[leftIdx] == 0) advectionTerm -= vx * (tempIn[idx] - tempIn[leftIdx]) / c_cellSizeX * fluxLimiter;
-    } else if(__float_as_int(vx)<0&&i<c_GX-1){
+        if(solidGrid[leftIdx] == 0) advectionTerm -= v.x * (tempIn[idx] - tempIn[leftIdx]) / c_cellSizeX * fluxLimiter;
+    } else if(v.x<0&&i<c_GX-1){
         int rightIdx = idx3D(i+1, j, k, c_GX, c_GY);
-        if(solidGrid[rightIdx] == 0) advectionTerm -= vx * (tempIn[rightIdx] - tempIn[idx]) / c_cellSizeX * fluxLimiter;
+        if(solidGrid[rightIdx] == 0) advectionTerm -= v.x * (tempIn[rightIdx] - tempIn[idx]) / c_cellSizeX * fluxLimiter;
     }
-    if(__float_as_int(vy)>0&&j>0){
+    if(v.y>0&&j>0){
         int downIdx = idx3D(i, j-1, k, c_GX, c_GY);
-        if(solidGrid[downIdx] == 0) advectionTerm -= vy * (tempIn[idx] - tempIn[downIdx]) / c_cellSizeY * fluxLimiter;
-    } else if(__float_as_int(vy)<0&&j<c_GY-1){
+        if(solidGrid[downIdx] == 0) advectionTerm -= v.y * (tempIn[idx] - tempIn[downIdx]) / c_cellSizeY * fluxLimiter;
+    } else if(v.y<0&&j<c_GY-1){
         int upIdx = idx3D(i, j+1, k, c_GX, c_GY);
-        if(solidGrid[upIdx] == 0) advectionTerm -= vy * (tempIn[upIdx] - tempIn[idx]) / c_cellSizeY * fluxLimiter;
+        if(solidGrid[upIdx] == 0) advectionTerm -= v.y * (tempIn[upIdx] - tempIn[idx]) / c_cellSizeY * fluxLimiter;
     }
-    if(__float_as_int(vz)>0&&k>0){
+    if(v.z>0&&k>0){
         int backIdx = idx3D(i, j, k-1, c_GX, c_GY);
-        if(solidGrid[backIdx] == 0) advectionTerm -= vz * (tempIn[idx] - tempIn[backIdx]) / c_cellSizeZ * fluxLimiter;
-    } else if(__float_as_int(vz)<0&&k<c_GZ-1){
+        if(solidGrid[backIdx] == 0) advectionTerm -= v.z * (tempIn[idx] - tempIn[backIdx]) / c_cellSizeZ * fluxLimiter;
+    } else if(v.z<0&&k<c_GZ-1){
         int frontIdx = idx3D(i, j, k+1, c_GX, c_GY);
-        if(solidGrid[frontIdx] == 0) advectionTerm -= vz * (tempIn[frontIdx] - tempIn[idx]) / c_cellSizeZ * fluxLimiter;
+        if(solidGrid[frontIdx] == 0) advectionTerm -= v.z * (tempIn[frontIdx] - tempIn[idx]) / c_cellSizeZ * fluxLimiter;
     }
     float diffusionTerm = 0.0f;
     int neighbors[6][3] = {
@@ -624,22 +621,50 @@ __global__ void velocityUpdateKernel(
         float distanceSq = toCell.x * toCell.x + toCell.y * toCell.y + toCell.z * toCell.z;
         if(distanceSq < 1e-6f) continue;
         float invDistance = rsqrtf(distanceSq);
+        float distance = sqrtf(distanceSq);
         float3 toCellNormalized = make_float3(
             toCell.x * invDistance,
             toCell.y * invDistance,
             toCell.z * invDistance
         );
-        float alignment = fanDirection.x * toCellNormalized.x + 
-                         fanDirection.y * toCellNormalized.y + 
-                         fanDirection.z * toCellNormalized.z;
-
+        float alignment = fanDirection.x * toCellNormalized.x + fanDirection.y * toCellNormalized.y + fanDirection.z * toCellNormalized.z;
+        float fanRadiusSq = 1.0f;
+        float forceMagnitude = __fmaf_rn(5.0f * alignment, __fdividef(1.0f, 1.0f + distanceSq / fanRadiusSq), 0.0f);
         if(alignment > 0.1f){
-            float fanRadiusSq = 1.0f;
-            float forceMagnitude = __fmaf_rn(5.0f * alignment, __fdividef(1.0f, 1.0f + distanceSq / fanRadiusSq), 0.0f);
             fanAccum.x += fanDirection.x * forceMagnitude;
             fanAccum.y += fanDirection.y * forceMagnitude;
             fanAccum.z += fanDirection.z * forceMagnitude;
-
+        } else if(alignment < 0.1f){
+            fanAccum.x -= fanDirection.x * forceMagnitude;
+            fanAccum.y -= fanDirection.y * forceMagnitude;
+            fanAccum.z -= fanDirection.z * forceMagnitude;
+        }
+        if(fabsf(alignment) > 0.1f && distance > 0.2f){
+            float axialDistance = alignment * distance;
+            float3 axialPoint = make_float3(
+                fanPosition.x + fanDirection.x * axialDistance,
+                fanPosition.y + fanDirection.y * axialDistance,
+                fanPosition.z + fanDirection.z * axialDistance
+            );
+            float3 radialVector = make_float3(
+                worldX - axialPoint.x,
+                worldY - axialPoint.y,
+                worldZ - axialPoint.z
+            );
+            float radialDistanceSq = radialVector.x * radialVector.x + radialVector.y * radialVector.y + radialVector.z * radialVector.z;
+            if(radialDistanceSq > 1e-6f){
+                float invRadialDistance = rsqrtf(radialDistanceSq);
+                float radialStrength = 0.5f / (distanceSq + 0.5f);
+                if(alignment > 0){
+                    fanAccum.x += radialVector.x * invRadialDistance * radialStrength;
+                    fanAccum.y += radialVector.y * invRadialDistance * radialStrength;
+                    fanAccum.z += radialVector.z * invRadialDistance * radialStrength;
+                } else{
+                    fanAccum.x -= radialVector.x * invRadialDistance * radialStrength;
+                    fanAccum.y -= radialVector.y * invRadialDistance * radialStrength;
+                    fanAccum.z -= radialVector.z * invRadialDistance * radialStrength;
+                }
+            }
         }
     }
     newVel[0] += fanAccum.x;

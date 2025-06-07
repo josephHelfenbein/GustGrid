@@ -90,7 +90,7 @@ To compile the project on Linux, you'll need:
     - `libglfw3-dev` (for creating windows, OpenGL contexts)
     - `cmake` (for building)
     - `cuda-tools` (for CUDA)
-4. Run the `Linux Debug (CMake)` configuration in VSCode.
+4. Run the `Linux Release (CMake)` configuration in VSCode, or `Linux Debug (CMake)` for debugging without optimization flags.
 
 <!-- LICENSE -->
 ## License

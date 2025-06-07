@@ -42,13 +42,13 @@ constexpr float worldMaxY = 4.5f;
 constexpr float worldMinZ = -4.0f;
 constexpr float worldMaxZ = 4.0f;
 
-constexpr int maxPressureIterations = 10;
+constexpr int maxPressureIterations = 8;
 constexpr float pressureTolerance = 1e-4f;
 
 constexpr float thermalDiffusivity = 2.2e-5f;
 constexpr float ambientTemperature = 22.0f;
 constexpr float coolingRate = 0.01f;
-constexpr float heatSourceStrength = 25.0f;
+constexpr float heatSourceStrength = 15.0f;
 
 constexpr float thermalExpansionCoefficient = 0.0034f;
 constexpr float gravity = 9.81f;
@@ -223,6 +223,7 @@ __global__ void pressureJacobianKernel(
     float dt
 ){
     __shared__ float s_pressure[10][10][10];
+    __shared__ unsigned char s_solid[10][10][10];
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
     int k = blockIdx.z * blockDim.z + threadIdx.z;
@@ -230,13 +231,39 @@ __global__ void pressureJacobianKernel(
     int ty = threadIdx.y + 1;
     int tz = threadIdx.z + 1;
     if(i<c_GX && j<c_GY && k<c_GZ){
-        s_pressure[tx][ty][tz] = pressureIn[idx3D(i, j, k, c_GX, c_GY)];
-        if(threadIdx.x==0&&i>0) s_pressure[0][ty][tz] = pressureIn[idx3D(i-1, j, k, c_GX, c_GY)];
-        if(threadIdx.x==blockDim.x-1&&i<c_GX-1) s_pressure[tx+1][ty][tz] = pressureIn[idx3D(i+1, j, k, c_GX, c_GY)];
-        if(threadIdx.y==0&&j>0) s_pressure[tx][0][tz] = pressureIn[idx3D(i, j-1, k, c_GX, c_GY)];
-        if(threadIdx.y==blockDim.y-1&&j<c_GY-1) s_pressure[tx][ty+1][tz] = pressureIn[idx3D(i, j+1, k, c_GX, c_GY)];
-        if(threadIdx.z==0&&k>0) s_pressure[tx][ty][0] = pressureIn[idx3D(i, j, k-1, c_GX, c_GY)];
-        if(threadIdx.z==blockDim.z-1&&k<c_GZ-1) s_pressure[tx][ty][tz+1] = pressureIn[idx3D(i, j, k+1, c_GX, c_GY)];
+        int idx = idx3D(i, j, k, c_GX, c_GY);
+        s_pressure[tx][ty][tz] = pressureIn[idx];
+        s_solid[tx][ty][tz] = solidGrid[idx];
+        if(threadIdx.x == 0 && i > 0){
+            int leftIdx = idx3D(i-1, j, k, c_GX, c_GY);
+            s_pressure[0][ty][tz] = pressureIn[leftIdx];
+            s_solid[0][ty][tz] = solidGrid[leftIdx];
+        }
+        if(threadIdx.x == blockDim.x-1 && i < c_GX-1){
+            int rightIdx = idx3D(i+1, j, k, c_GX, c_GY);
+            s_pressure[tx+1][ty][tz] = pressureIn[rightIdx];
+            s_solid[tx+1][ty][tz] = solidGrid[rightIdx];
+        }
+        if(threadIdx.y == 0 && j > 0){
+            int downIdx = idx3D(i, j-1, k, c_GX, c_GY);
+            s_pressure[tx][0][tz] = pressureIn[downIdx];
+            s_solid[tx][0][tz] = solidGrid[downIdx];
+        }
+        if(threadIdx.y == blockDim.y-1 && j < c_GY-1){
+            int upIdx = idx3D(i, j+1, k, c_GX, c_GY);
+            s_pressure[tx][ty+1][tz] = pressureIn[upIdx];
+            s_solid[tx][ty+1][tz] = solidGrid[upIdx];
+        }
+        if(threadIdx.z == 0 && k > 0){
+            int backIdx = idx3D(i, j, k-1, c_GX, c_GY);
+            s_pressure[tx][ty][0] = pressureIn[backIdx];
+            s_solid[tx][ty][0] = solidGrid[backIdx];
+        }
+        if(threadIdx.z == blockDim.z-1 && k < c_GZ-1){
+            int frontIdx = idx3D(i, j, k+1, c_GX, c_GY);
+            s_pressure[tx][ty][tz+1] = pressureIn[frontIdx];
+            s_solid[tx][ty][tz+1] = solidGrid[frontIdx];
+        }
     }
     __syncthreads();
     if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
@@ -247,27 +274,27 @@ __global__ void pressureJacobianKernel(
     }
     float neighborPressureSum = 0.0f;
     int neighborCount = 0;
-    if(i>0&&solidGrid[idx3D(i-1, j, k, c_GX, c_GY)] == 0){
+    if(i > 0 && s_solid[tx-1][ty][tz] == 0){
         neighborPressureSum += s_pressure[tx-1][ty][tz];
         neighborCount++;
     }
-    if(i<c_GX-1&&solidGrid[idx3D(i+1, j, k, c_GX, c_GY)] == 0){
+    if(i < c_GX-1 && s_solid[tx+1][ty][tz] == 0){
         neighborPressureSum += s_pressure[tx+1][ty][tz];
         neighborCount++;
     }
-    if(j>0&&solidGrid[idx3D(i, j-1, k, c_GX, c_GY)] == 0){
+    if(j > 0 && s_solid[tx][ty-1][tz] == 0){
         neighborPressureSum += s_pressure[tx][ty-1][tz];
         neighborCount++;
     }
-    if(j<c_GY-1&&solidGrid[idx3D(i, j+1, k, c_GX, c_GY)] == 0){
+    if(j < c_GY-1 && s_solid[tx][ty+1][tz] == 0){
         neighborPressureSum += s_pressure[tx][ty+1][tz];
-        neighborCount++;
+        neighborCount++; 
     }
-    if(k>0&&solidGrid[idx3D(i, j, k-1, c_GX, c_GY)] == 0){
+    if(k > 0 && s_solid[tx][ty][tz-1] == 0){
         neighborPressureSum += s_pressure[tx][ty][tz-1];
         neighborCount++;
     }
-    if(k<c_GZ-1&&solidGrid[idx3D(i, j, k+1, c_GX, c_GY)] == 0){
+    if(k < c_GZ-1 && s_solid[tx][ty][tz+1] == 0){
         neighborPressureSum += s_pressure[tx][ty][tz+1];
         neighborCount++;
     }
@@ -369,6 +396,7 @@ __global__ void advectDiffusionHeatKernel(
     const float* __restrict__ tempIn,
     float* __restrict__ tempOut,
     const float* __restrict__ velocity,
+    float* __restrict__ speed,
     const float* __restrict__ heatSources,
     unsigned char* solidGrid,
     float dt
@@ -378,6 +406,10 @@ __global__ void advectDiffusionHeatKernel(
     int k = blockIdx.z * blockDim.z + threadIdx.z;
     if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
     int idx = idx3D(i, j, k, c_GX, c_GY);
+    const float3* __restrict__ vel3 = reinterpret_cast<const float3*>(velocity);
+    float3 v = vel3[idx];
+    float mag = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    speed[idx] = mag;
     if(solidGrid[idx] != 0){
         float heatExchangeRate = 10.0f;
         float invDenom = __frcp_rn(1.0f + heatExchangeRate * dt);
@@ -455,55 +487,6 @@ __global__ void advectDiffusionHeatKernel(
     tempOut[idx] = newTemp;
 }
 
-__global__ void addBuoyancyForcesKernel(
-    float* __restrict__ velocity,
-    const float* __restrict__ temperature,
-    const unsigned char* __restrict__ solidGrid,
-    float dt
-){
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    int k = blockIdx.z * blockDim.z + threadIdx.z;
-    if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
-    int idx = idx3D(i, j, k, c_GX, c_GY);
-    if(solidGrid[idx] != 0){
-        velocity[idx * 3 + 0] = 0.0f;
-        velocity[idx * 3 + 1] = 0.0f;
-        velocity[idx * 3 + 2] = 0.0f;
-        return;
-    }
-    float tempDiff = temperature[idx] - c_ambientTemperature;
-    if(tempDiff > 2.0f){
-        float densityChange = -c_referenceDensity * c_thermalExpansionCoefficient * tempDiff;
-        float buoyancyForce = densityChange * c_gravity * c_buoyancyFactor / c_referenceDensity;
-        float maxBuoyancyAccel = 20.0f;
-        buoyancyForce = fminf(fmaxf(buoyancyForce, -maxBuoyancyAccel), maxBuoyancyAccel);
-        velocity[idx * 3 + 1] += buoyancyForce * dt;
-        if(tempDiff > 20.0f){
-            float thermalSpreadForce = fmin(tempDiff * 0.0002f, 0.01f);
-            float gradX = 0.0f;
-            float gradZ = 0.0f;
-            if(i > 0 && i < c_GX - 1){
-                int leftIdx = idx3D(i - 1, j, k, c_GX, c_GY);
-                int rightIdx = idx3D(i + 1, j, k, c_GX, c_GY);
-                if(solidGrid[leftIdx]==0 && solidGrid[rightIdx]==0) gradX = (temperature[rightIdx] - temperature[leftIdx]) / (2.0f * c_cellSizeX);
-            }
-            if(k > 0 && k < c_GZ - 1){
-                int backIdx = idx3D(i, j, k - 1, c_GX, c_GY);
-                int frontIdx = idx3D(i, j, k + 1, c_GX, c_GY);
-                if(solidGrid[backIdx]==0 && solidGrid[frontIdx]==0) gradZ = (temperature[frontIdx] - temperature[backIdx]) / (2.0f * c_cellSizeZ);
-            }
-            velocity[idx * 3 + 0] -= gradX * thermalSpreadForce * dt;
-            velocity[idx * 3 + 2] -= gradZ * thermalSpreadForce * dt;
-        }
-    }
-    const float maxVelocity = 20.0f;
-    const float damping = 0.95f;
-    velocity[idx * 3 + 0] = fminf(fmaxf(velocity[idx * 3 + 0], -maxVelocity), maxVelocity) * damping;
-    velocity[idx * 3 + 1] = fminf(fmaxf(velocity[idx * 3 + 1], -maxVelocity), maxVelocity) * damping;
-    velocity[idx * 3 + 2] = fminf(fmaxf(velocity[idx * 3 + 2], -maxVelocity), maxVelocity) * damping;
-}
-
 __host__ void solvePressureProjection(
     float* d_velocity,
     float* d_pressureField,
@@ -539,7 +522,7 @@ __host__ void solvePressureProjection(
             d_pressure_in, d_pressure_out, d_divergence, d_solidGrid, dt
         );
         CUDA_CHECK(cudaDeviceSynchronize());
-        if(iter%5==4 || iter == maxPressureIterations-1){
+        if(iter%4==3 || iter == maxPressureIterations-1){
             computeResidualKernel<<<grid, block>>>(
                 d_pressure_in, d_divergence, d_residual, d_solidGrid
             );
@@ -564,68 +547,14 @@ __host__ void solvePressureProjection(
     CUDA_CHECK(cudaDeviceSynchronize());
 }
 
-__global__ void addFanForcesKernel(
-    float* __restrict__ velocity,
+__global__ void velocityUpdateKernel(
+    const float* __restrict__ velIn,
+    float* __restrict__ velOut,
+    const float* __restrict__ temperature,
     const unsigned char* __restrict__ solidGrid,
     const float3* __restrict__ fanPos,
     const float3* __restrict__ fanDir,
     const int numFans,
-    const float dampeningFactor
-){
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    int k = blockIdx.z * blockDim.z + threadIdx.z;
-    if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
-    int idx = idx3D(i, j, k, c_GX, c_GY);
-    if(solidGrid[idx] != 0){
-        velocity[idx * 3 + 0] = 0.0f;
-        velocity[idx * 3 + 1] = 0.0f;
-        velocity[idx * 3 + 2] = 0.0f;
-        return;
-    }
-    float worldX = __fmaf_rn(i + 0.5f, c_cellSizeX, c_worldMinX);
-    float worldY = __fmaf_rn(j + 0.5f, c_cellSizeY, c_worldMinY);
-    float worldZ = __fmaf_rn(k + 0.5f, c_cellSizeZ, c_worldMinZ);
-    float3 accum = make_float3(0.0f, 0.0f, 0.0f);
-    for(int f = 0; f < numFans; ++f){
-        float3 fanPosition = fanPos[f];
-        float3 fanDirection = fanDir[f];
-        float3 toCell = make_float3(
-            worldX - fanPosition.x,
-            worldY - fanPosition.y,
-            worldZ - fanPosition.z
-        );
-        float distanceSq = __fmaf_rn(toCell.x, toCell.x, __fmaf_rn(toCell.y, toCell.y, toCell.z * toCell.z));
-        if(distanceSq < 1e-6f) continue;
-        float invDistance = __frsqrt_rn(distanceSq);
-        float3 toCellNormalized = make_float3(
-            toCell.x * invDistance,
-            toCell.y * invDistance,
-            toCell.z * invDistance
-        );
-        float alignment = __fmaf_rn(fanDirection.x, toCellNormalized.x, __fmaf_rn(fanDirection.y, toCellNormalized.y, fanDirection.z * toCellNormalized.z));
-
-        if(alignment > 0.1f){
-            float fanRadiusSq = 1.0f;
-            float forceMagnitude = __fmaf_rn(5.0f * alignment, __fdividef(1.0f, 1.0f + distanceSq / fanRadiusSq), 0.0f);
-            accum.x = __fmaf_rn(fanDirection.x, forceMagnitude, accum.x);
-            accum.y = __fmaf_rn(fanDirection.y, forceMagnitude, accum.y);
-            accum.z = __fmaf_rn(fanDirection.z, forceMagnitude, accum.z);
-        }
-    }
-    velocity[idx * 3 + 0] = __fmaf_rn(accum.x, 1.0f, velocity[idx * 3 + 0]);
-    velocity[idx * 3 + 1] = __fmaf_rn(accum.y, 1.0f, velocity[idx * 3 + 1]);
-    velocity[idx * 3 + 2] = __fmaf_rn(accum.z, 1.0f, velocity[idx * 3 + 2]);
-    const float maxVelocity = 10.0f;
-    velocity[idx * 3 + 0] = fminf(fmaxf(velocity[idx * 3 + 0], -maxVelocity), maxVelocity) * dampeningFactor;
-    velocity[idx * 3 + 1] = fminf(fmaxf(velocity[idx * 3 + 1], -maxVelocity), maxVelocity) * dampeningFactor;
-    velocity[idx * 3 + 2] = fminf(fmaxf(velocity[idx * 3 + 2], -maxVelocity), maxVelocity) * dampeningFactor;
-}
-
-__global__ void advectVelocityKernel(
-    const float* __restrict__ velIn,
-    float* __restrict__ velOut,
-    const unsigned char* __restrict__ solidGrid,
     float dt
 ){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -659,6 +588,7 @@ __global__ void advectVelocityKernel(
     yi = max(0, min(yi, c_GY - 2));
     zi = max(0, min(zi, c_GZ - 2));
 
+    float newVel[3];
     for(int comp = 0; comp < 3; comp++){
         float c000 = velIn[idx3D(xi, yi, zi, c_GX, c_GY) * 3 + comp];
         float c001 = velIn[idx3D(xi, yi, zi+1, c_GX, c_GY) * 3 + comp];
@@ -677,23 +607,74 @@ __global__ void advectVelocityKernel(
         float c0 = c00 * (1.0f - fy) + c10 * fy;
         float c1 = c01 * (1.0f - fy) + c11 * fy;
         
-        velOut[idx * 3 + comp] = c0 * (1.0f - fz) + c1 * fz;
+        newVel[comp] = c0 * (1.0f - fz) + c1 * fz;
     }
-}
+    float worldX = (i + 0.5f) * c_cellSizeX + c_worldMinX;
+    float worldY = (j + 0.5f) * c_cellSizeY + c_worldMinY;
+    float worldZ = (k + 0.5f) * c_cellSizeZ + c_worldMinZ;
+    float3 fanAccum = make_float3(0.0f, 0.0f, 0.0f);
+    for(int f=0; f<numFans; f++){
+        float3 fanPosition = fanPos[f];
+        float3 fanDirection = fanDir[f];
+        float3 toCell = make_float3(
+            worldX - fanPosition.x,
+            worldY - fanPosition.y,
+            worldZ - fanPosition.z
+        );
+        float distanceSq = toCell.x * toCell.x + toCell.y * toCell.y + toCell.z * toCell.z;
+        if(distanceSq < 1e-6f) continue;
+        float invDistance = rsqrtf(distanceSq);
+        float3 toCellNormalized = make_float3(
+            toCell.x * invDistance,
+            toCell.y * invDistance,
+            toCell.z * invDistance
+        );
+        float alignment = fanDirection.x * toCellNormalized.x + 
+                         fanDirection.y * toCellNormalized.y + 
+                         fanDirection.z * toCellNormalized.z;
 
-__global__ void velocityToSpeed(
-    const float* __restrict__ velocity,
-    float* __restrict__ speed
-){
-    int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int j = blockIdx.y * blockDim.y + threadIdx.y;
-    int k = blockIdx.z * blockDim.z + threadIdx.z;
-    if (i >= c_GX || j >= c_GY || k >= c_GZ) return; 
-    int idx = idx3D(i, j, k, c_GX, c_GY);
-    const float3* __restrict__ vel3 = reinterpret_cast<const float3*>(velocity);
-    float3 v = vel3[idx];
-    float mag = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
-    speed[idx] = mag;
+        if(alignment > 0.1f){
+            float fanRadiusSq = 1.0f;
+            float forceMagnitude = __fmaf_rn(5.0f * alignment, __fdividef(1.0f, 1.0f + distanceSq / fanRadiusSq), 0.0f);
+            fanAccum.x += fanDirection.x * forceMagnitude;
+            fanAccum.y += fanDirection.y * forceMagnitude;
+            fanAccum.z += fanDirection.z * forceMagnitude;
+
+        }
+    }
+    newVel[0] += fanAccum.x;
+    newVel[1] += fanAccum.y;
+    newVel[2] += fanAccum.z;
+    float tempDiff = temperature[idx] - c_ambientTemperature;
+    if(tempDiff > 2.0f){
+        float densityChange = -c_referenceDensity * c_thermalExpansionCoefficient * tempDiff;
+        float buoyancyForce = densityChange * c_gravity * c_buoyancyFactor / c_referenceDensity;
+        float maxBuoyancyAccel = 20.0f;
+        buoyancyForce = fminf(fmaxf(buoyancyForce, -maxBuoyancyAccel), maxBuoyancyAccel);
+        newVel[1] -= buoyancyForce * dt;
+        if(tempDiff > 20.0f){
+            float thermalSpreadForce = fminf(tempDiff * 0.0002f, 0.01f);
+            float gradX = 0.0f;
+            float gradZ = 0.0f;
+            if(i > 0 && i < c_GX - 1){
+                int leftIdx = idx3D(i - 1, j, k, c_GX, c_GY);
+                int rightIdx = idx3D(i + 1, j, k, c_GX, c_GY);
+                if(solidGrid[leftIdx]==0 && solidGrid[rightIdx]==0) gradX = (temperature[rightIdx] - temperature[leftIdx]) / (2.0f * c_cellSizeX);
+            }
+            if(k > 0 && k < c_GZ - 1){
+                int backIdx = idx3D(i, j, k - 1, c_GX, c_GY);
+                int frontIdx = idx3D(i, j, k + 1, c_GX, c_GY);
+                if(solidGrid[backIdx]==0 && solidGrid[frontIdx]==0) gradZ = (temperature[frontIdx] - temperature[backIdx]) / (2.0f * c_cellSizeZ);
+            }
+            newVel[0] -= gradX * thermalSpreadForce * dt;
+            newVel[2] -= gradZ * thermalSpreadForce * dt;
+        }
+    }
+    const float maxVelocity = 20.0f;
+    const float damping = 0.95f;
+    velOut[idx * 3 + 0] = fminf(fmaxf(newVel[0], -maxVelocity), maxVelocity) * damping;
+    velOut[idx * 3 + 1] = fminf(fmaxf(newVel[1], -maxVelocity), maxVelocity) * damping;
+    velOut[idx * 3 + 2] = fminf(fmaxf(newVel[2], -maxVelocity), maxVelocity) * damping;
 }
 
 extern "C" void runFluidSimulation(
@@ -720,28 +701,17 @@ extern "C" void runFluidSimulation(
     simMem.ensureAllocated(numCells);
     float* d_tempVelocity = simMem.getTempVelocity();
     float* d_tempTemperature = simMem.getTempTemperature();
-    addFanForcesKernel<<<grid, block>>>(
-        d_velocityField, d_solidGrid, d_fanPositions, d_fanDirections, numFans, 0.95
-    );
-    CUDA_CHECK(cudaDeviceSynchronize());
-    addBuoyancyForcesKernel<<<grid, block>>>(
-        d_velocityField, d_temperature, d_solidGrid, dt
-    );
-    CUDA_CHECK(cudaDeviceSynchronize());
-    advectVelocityKernel<<<grid, block>>>(
-        d_velocityField, d_tempVelocity, d_solidGrid, dt
+    velocityUpdateKernel<<<grid, block>>>(
+        d_velocityField, d_tempVelocity, d_temperature, d_solidGrid,
+        d_fanPositions, d_fanDirections, numFans, dt
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaMemcpy(d_velocityField, d_tempVelocity, numCells * 3 * sizeof(float), cudaMemcpyDeviceToDevice));
-    velocityToSpeed<<<grid, block>>>(
-        d_velocityField, d_speedField
-    );
-    CUDA_CHECK(cudaDeviceSynchronize());
     solvePressureProjection(
         d_velocityField, d_pressureField, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
     );
     advectDiffusionHeatKernel<<<grid, block>>>(
-        d_temperature, d_tempTemperature, d_velocityField, d_heatSources, d_solidGrid, dt
+        d_temperature, d_tempTemperature, d_velocityField, d_speedField, d_heatSources, d_solidGrid, dt
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaMemcpy(d_temperature, d_tempTemperature, numCells * sizeof(float), cudaMemcpyDeviceToDevice));

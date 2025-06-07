@@ -77,6 +77,11 @@
         "queue": "cpp",
         "stack": "cpp",
         "condition_variable": "cpp",
-        "regex": "cpp"
+        "regex": "cpp",
+        "hash_map": "cpp",
+        "hash_set": "cpp",
+        "flat_map": "cpp",
+        "flat_set": "cpp",
+        "unordered_set": "cpp"
     }
 }

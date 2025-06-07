@@ -250,10 +250,7 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
     camPos = glm::vec3(sin(camYaw) * camRadius, sin(camPitch) * camRadius, cos(camYaw) * camRadius);
 }
 void processInput(GLFWwindow* window){
-    if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) {
-        *runningPtr = false;
-        glfwSetWindowShouldClose(window, true);
-    }
+    if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) glfwSetWindowShouldClose(window, true);
     else if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS){
         if(!firstMouse) return;
         if(hoverElement == -1) return;
@@ -898,7 +895,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         glUniform1i(glGetUniformLocation(volumeShaderProgram, "temperatureTex"), 1);
         glUniform1i(glGetUniformLocation(volumeShaderProgram, "displayPressure"), displayPressure ? 1 : 0);
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "gridSize"), (float) gridSizeX, (float) gridSizeY, (float) gridSizeZ);
-        glUniform1f(glGetUniformLocation(volumeShaderProgram, "stepSize"), 1.0 / 64.0f);
+        glUniform1f(glGetUniformLocation(volumeShaderProgram, "stepSize"), 1.0 / 32.0f);
 
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "worldMin"), worldMinX, worldMinY, worldMinZ);
         glUniform3f(glGetUniformLocation(volumeShaderProgram, "worldMax"), worldMaxX, worldMaxY, worldMaxZ);
@@ -981,6 +978,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
 
     for(unsigned int VAO : VAOs) glDeleteVertexArrays(1, &VAO);
     for(unsigned int buffer : buffers) glDeleteBuffers(1, &buffer);
+    *runningPtr = false;
 
     glfwTerminate();
     return 0;

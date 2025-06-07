@@ -22,11 +22,14 @@ void main(){
     vec3 voxelSize = worldSize / gridSize;
 
     float maxVoxelDim = max(max(voxelSize.x, voxelSize.y), voxelSize.z);
-    float worldStep = maxVoxelDim * stepSize;
+    float baseWorldStep = maxVoxelDim * stepSize;
+    float worldStep = baseWorldStep;
+    int emptySteps = 0;
+
     vec3 currentWorldPos = FragPos;
     vec3 currentTexCoord = texCoord;
 
-    int maxSteps = int(length(worldSize) / worldStep) + 1;
+    int maxSteps = int(length(worldSize) / baseWorldStep) + 1;
 
     float opacity = displayPressure == 1 ? 0.05 : 0.002;
 
@@ -40,14 +43,19 @@ void main(){
         float volumeVal = texture(volumeTex, currentTexCoord).r;
         float tempValue = texture(temperatureTex, currentTexCoord).r;
         if(volumeVal < 1e-4 && tempValue < ambientTemp + 0.1){
+            emptySteps++;
+            if(emptySteps > 2.0) worldStep = min(baseWorldStep * 8.0, baseWorldStep * (1.0 + float(emptySteps - 2)));
             currentWorldPos += rayDir * worldStep;
             currentTexCoord = (currentWorldPos - worldMin) / (worldMax - worldMin);
             continue;
+        } else{
+            emptySteps = 0;
+            worldStep = baseWorldStep;
         }
 
         float normalizedTemp = clamp((tempValue - ambientTemp) / (maxExpectedTemp - ambientTemp), 0.0, 1.0);
 
-        float tempAlpha = normalizedTemp * 0.001;
+        float tempAlpha = normalizedTemp * 0.01;
         float volumeAlpha = clamp(volumeVal * stepSize * opacity, 0.0, 1.0);
         float totalAlpha = max(volumeAlpha, tempAlpha);
         vec3 color = vec3(0.0);

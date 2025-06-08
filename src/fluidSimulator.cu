@@ -15,7 +15,6 @@ __constant__ float c_worldMinY;
 __constant__ float c_worldMinZ;
 __constant__ float c_thermalDiffusivity;
 __constant__ float c_ambientTemperature;
-__constant__ float c_coolingRate;
 __constant__ float c_heatSourceStrength;
 __constant__ float c_thermalExpansionCoefficient;
 __constant__ float c_gravity;
@@ -45,10 +44,9 @@ constexpr float worldMaxZ = 4.0f;
 constexpr int maxPressureIterations = 8;
 constexpr float pressureTolerance = 1e-4f;
 
-constexpr float thermalDiffusivity = 2.2e-5f;
+constexpr float thermalDiffusivity = 1.5e-5f;
 constexpr float ambientTemperature = 22.0f;
-constexpr float coolingRate = 0.01f;
-constexpr float heatSourceStrength = 15.0f;
+constexpr float heatSourceStrength = 100.0f;
 
 constexpr float thermalExpansionCoefficient = 0.0034f;
 constexpr float gravity = 9.81f;
@@ -70,7 +68,6 @@ __host__ void initializeConstants(int gridSizeX, int gridSizeY, int gridSizeZ){
     cudaMemcpyToSymbol(c_worldMinZ, &worldMinZ, sizeof(float));
     cudaMemcpyToSymbol(c_thermalDiffusivity, &thermalDiffusivity, sizeof(float));
     cudaMemcpyToSymbol(c_ambientTemperature, &ambientTemperature, sizeof(float));
-    cudaMemcpyToSymbol(c_coolingRate, &coolingRate, sizeof(float));
     cudaMemcpyToSymbol(c_heatSourceStrength, &heatSourceStrength, sizeof(float));
     cudaMemcpyToSymbol(c_thermalExpansionCoefficient, &thermalExpansionCoefficient, sizeof(float));
     cudaMemcpyToSymbol(c_gravity, &gravity, sizeof(float));
@@ -137,6 +134,8 @@ private:
     float* d_residual = nullptr;
     float* d_tempVelocity = nullptr;
     float* d_tempTemperature = nullptr;
+    float* d_tempSum = nullptr;
+    float* d_weightSum = nullptr;
     int allocatedGridSize = 0;
 public:
     ~SimulationMemory(){
@@ -151,6 +150,8 @@ public:
         pool.deallocate(d_residual);
         pool.deallocate(d_tempVelocity);
         pool.deallocate(d_tempTemperature);
+        pool.deallocate(d_tempSum);
+        pool.deallocate(d_weightSum);
         allocatedGridSize = 0;
     }
     void ensureAllocated(int numCells){
@@ -163,6 +164,8 @@ public:
         d_residual = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_tempVelocity = static_cast<float*>(pool.allocate(numCells * 3 * sizeof(float)));
         d_tempTemperature = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_tempSum = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_weightSum = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         allocatedGridSize = numCells;
     }
     float* getDivergence() { return d_divergence; }
@@ -171,6 +174,8 @@ public:
     float* getResidual() { return d_residual; }
     float* getTempVelocity() { return d_tempVelocity; }
     float* getTempTemperature() { return d_tempTemperature; }
+    float* getTempSum() { return d_tempSum; }
+    float* getWeightSum() { return d_weightSum; }
     static SimulationMemory& getInstance() {
         static SimulationMemory instance;
         return instance;
@@ -392,13 +397,13 @@ __global__ void computeResidualKernel(
     residual[idx] = residualValue * residualValue;
 }
 
-__global__ void advectDiffusionHeatKernel(
+__global__ void advectKernel(
     const float* __restrict__ tempIn,
-    float* __restrict__ tempOut,
     const float* __restrict__ velocity,
     float* __restrict__ speed,
-    const float* __restrict__ heatSources,
-    unsigned char* solidGrid,
+    float* __restrict__ tempSum,
+    float* __restrict__ weightSum,
+    const unsigned char* __restrict__ solidGrid,
     float dt
 ){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -406,47 +411,91 @@ __global__ void advectDiffusionHeatKernel(
     int k = blockIdx.z * blockDim.z + threadIdx.z;
     if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
     int idx = idx3D(i, j, k, c_GX, c_GY);
-    const float3* __restrict__ vel3 = reinterpret_cast<const float3*>(velocity);
-    float3 v = vel3[idx];
-    float mag = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
-    speed[idx] = mag;
+    if(solidGrid[idx]!=0) return;
+    float temp = tempIn[idx];
+    float3 v = reinterpret_cast<const float3*>(velocity)[idx];
+    speed[idx] = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
+    float x0 = (float) i;
+    float y0 = (float) j;
+    float z0 = (float) k;
+    float fx = x0 + v.x * dt / c_cellSizeX;
+    float fy = y0 + v.y * dt / c_cellSizeY;
+    float fz = z0 + v.z * dt / c_cellSizeZ;
+    fx = fminf(fmaxf(fx, 0.0f), (float) (c_GX - 1));
+    fy = fminf(fmaxf(fy, 0.0f), (float) (c_GY - 1));
+    fz = fminf(fmaxf(fz, 0.0f), (float) (c_GZ - 1));
+    int xi = (int) floorf(fx);
+    int yi = (int) floorf(fy);
+    int zi = (int) floorf(fz);
+    xi = max(0, min(xi, c_GX - 2));
+    yi = max(0, min(yi, c_GY - 2));
+    zi = max(0, min(zi, c_GZ - 2));
+    float wx = fx - (float) xi;
+    float wy = fy - (float) yi;
+    float wz = fz - (float) zi;
+    wx = fminf(fmaxf(wx, 0.0f), 1.0f);
+    wy = fminf(fmaxf(wy, 0.0f), 1.0f);
+    wz = fminf(fmaxf(wz, 0.0f), 1.0f);
+    for(int dx=0; dx<=1; dx++){
+        for(int dy=0; dy<=1; dy++){
+            for(int dz=0; dz<=1; dz++){
+                int nx = xi + dx;
+                int ny = yi + dy;
+                int nz = zi + dz;
+                if(nx<0 || nx>=c_GX || ny<0 || ny>=c_GY || nz<0 || nz>=c_GZ) continue;
+                int nidx = idx3D(nx, ny, nz, c_GX, c_GY);
+                if(solidGrid[nidx]!=0) continue;
+                float weight = (dx ? wx : (1.0f-wx)) * (dy ? wy : (1.0f-wy)) * (dz ? wz : (1.0f-wz));
+                if(weight > 1e-6f){
+                    atomicAdd(&tempSum[nidx], temp * weight);
+                    atomicAdd(&weightSum[nidx], weight);
+                }
+            }
+        }
+    }
+}
+
+__global__ void normalizeForwardAdvected(
+    float* __restrict__ tempOut,
+    const float* __restrict__ tempSum,
+    const float* __restrict__ weightSum,
+    const float* __restrict__ tempIn,
+    const unsigned char* __restrict__ solidGrid
+){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
+    int idx = idx3D(i, j, k, c_GX, c_GY);
     if(solidGrid[idx] != 0){
-        float heatExchangeRate = 10.0f;
-        float invDenom = __frcp_rn(1.0f + heatExchangeRate * dt);
-        tempOut[idx] = __fmul_rn(tempIn[idx] + heatExchangeRate * dt * c_ambientTemperature, invDenom);
+        tempOut[idx] = tempIn[idx];
         return;
     }
-    float cellVolume = c_cellSizeX * c_cellSizeY * c_cellSizeZ;
-    float airDensity = 1.225;
-    float specificHeat = 1005.0f;
-    float heatCapacity = airDensity * specificHeat * cellVolume;
-    float advectionTerm = 0.0f;
-    float maxCellSize = fmaxf(fmaxf(c_cellSizeX, c_cellSizeY), c_cellSizeZ);
-    float advectionCFL = __fmul_rn(fmaxf(fmaxf(fabsf(v.x), fabsf(v.y)), fabsf(v.z)), __fdividef(dt, maxCellSize));
-    float fluxLimiter = fminf(1.0f, __fdividef(0.8f, fmaxf(advectionCFL, 1e-6f)));
-    if(v.x>0&&i>0){
-        int leftIdx = idx3D(i-1, j, k, c_GX, c_GY);
-        if(solidGrid[leftIdx] == 0) advectionTerm -= v.x * (tempIn[idx] - tempIn[leftIdx]) / c_cellSizeX * fluxLimiter;
-    } else if(v.x<0&&i<c_GX-1){
-        int rightIdx = idx3D(i+1, j, k, c_GX, c_GY);
-        if(solidGrid[rightIdx] == 0) advectionTerm -= v.x * (tempIn[rightIdx] - tempIn[idx]) / c_cellSizeX * fluxLimiter;
+    float w = weightSum[idx];
+    tempOut[idx] = (w > 1e-6f) ? tempSum[idx] / w : c_ambientTemperature;
+}
+
+__global__ void diffuseKernel(
+    const float* __restrict__ tempAdv,
+    float* __restrict__ tempOut,
+    const float* __restrict__ heatSources,
+    const unsigned char* __restrict__ solidGrid,
+    float dt
+){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
+    int idx = idx3D(i, j, k, c_GX, c_GY);
+    if(solidGrid[idx] != 0){
+        const float coolingCoefficient = 10.0f;
+        float inv = 1.0f / (1.0f + coolingCoefficient * dt);
+        float cooled = (tempAdv[idx] + coolingCoefficient * dt * c_ambientTemperature) * inv;
+        tempOut[idx] = cooled;
+        return;
     }
-    if(v.y>0&&j>0){
-        int downIdx = idx3D(i, j-1, k, c_GX, c_GY);
-        if(solidGrid[downIdx] == 0) advectionTerm -= v.y * (tempIn[idx] - tempIn[downIdx]) / c_cellSizeY * fluxLimiter;
-    } else if(v.y<0&&j<c_GY-1){
-        int upIdx = idx3D(i, j+1, k, c_GX, c_GY);
-        if(solidGrid[upIdx] == 0) advectionTerm -= v.y * (tempIn[upIdx] - tempIn[idx]) / c_cellSizeY * fluxLimiter;
-    }
-    if(v.z>0&&k>0){
-        int backIdx = idx3D(i, j, k-1, c_GX, c_GY);
-        if(solidGrid[backIdx] == 0) advectionTerm -= v.z * (tempIn[idx] - tempIn[backIdx]) / c_cellSizeZ * fluxLimiter;
-    } else if(v.z<0&&k<c_GZ-1){
-        int frontIdx = idx3D(i, j, k+1, c_GX, c_GY);
-        if(solidGrid[frontIdx] == 0) advectionTerm -= v.z * (tempIn[frontIdx] - tempIn[idx]) / c_cellSizeZ * fluxLimiter;
-    }
-    float diffusionTerm = 0.0f;
-    int neighbors[6][3] = {
+    float T0 = tempAdv[idx];
+    const int neighbors[6][3] = {
         {-1, 0, 0},
         {1, 0, 0},
         {0, -1, 0},
@@ -454,33 +503,24 @@ __global__ void advectDiffusionHeatKernel(
         {0, 0, -1},
         {0, 0, 1}
     };
+    float maxCellSize = fmaxf(fmaxf(c_cellSizeX, c_cellSizeY), c_cellSizeZ);
     float cellSizes[3] = {c_cellSizeX, c_cellSizeY, c_cellSizeZ};
+    float flux = 0.0f;
     for(int n=0; n<6; n++){
         int ni = i + neighbors[n][0];
         int nj = j + neighbors[n][1];
         int nk = k + neighbors[n][2];
-        int axis = n/2;
-        float h = cellSizes[axis];
+        float h = cellSizes[n/2];
         float neighborTemp = c_ambientTemperature;
-        if(ni >= 0 && ni < c_GX && nj >= 0 && nj < c_GY && nk >= 0 && nk < c_GZ){
-            int nidx = idx3D(ni, nj, nk, c_GX, c_GY);
-            neighborTemp = tempIn[nidx];
-        }
-        diffusionTerm += (neighborTemp - tempIn[idx]) / (h * h);
+        if(!isValidFluidCell(ni, nj, nk, solidGrid)) neighborTemp = c_ambientTemperature;
+        else neighborTemp = tempAdv[idx3D(ni, nj, nk, c_GX, c_GY)];
+        flux += c_thermalDiffusivity * (neighborTemp - T0) / (h * h);
     }
-    diffusionTerm *= c_thermalDiffusivity;
-    float heatPowerWatts = heatSources[idx] * c_heatSourceStrength;
-    float heatSourceTerm = heatPowerWatts / heatCapacity;
-    float tempDiff = tempIn[idx] - c_ambientTemperature;
-    float convectiveCooling = c_coolingRate * tempDiff;
-    float beta = convectiveCooling * dt;
-    float explicitTerm = tempIn[idx] + dt * (advectionTerm + heatSourceTerm + diffusionTerm);
-    float newTemp = explicitTerm / (1.0f + beta);
-    float dTdt = newTemp - tempIn[idx];
-    float maxTempChange = dt * 500.0f;
-    if(fabsf(dTdt) > maxTempChange) newTemp = tempIn[idx] + (dTdt > 0 ? +maxTempChange : -maxTempChange);
-    newTemp = fmaxf(newTemp, c_ambientTemperature);
-    newTemp = fminf(newTemp, 200.0f);
+    float cellVolume = c_cellSizeX * c_cellSizeY * c_cellSizeZ;
+    float heat = c_heatSourceStrength * heatSources[idx] / (1.225f * 1005.0f * cellVolume);
+    float newTemp = T0 + (flux + heat) * dt;
+    newTemp = fmaxf(newTemp, c_ambientTemperature - 10.0f);
+    newTemp = fminf(newTemp, c_ambientTemperature + 200.0f);
     tempOut[idx] = newTemp;
 }
 
@@ -726,6 +766,10 @@ extern "C" void runFluidSimulation(
     simMem.ensureAllocated(numCells);
     float* d_tempVelocity = simMem.getTempVelocity();
     float* d_tempTemperature = simMem.getTempTemperature();
+    float* d_tempSum = simMem.getTempSum();
+    float* d_weightSum = simMem.getWeightSum();
+    CUDA_CHECK(cudaMemset(d_tempSum, 0, numCells * sizeof(float)));
+    CUDA_CHECK(cudaMemset(d_weightSum, 0, numCells * sizeof(float)));
     velocityUpdateKernel<<<grid, block>>>(
         d_velocityField, d_tempVelocity, d_temperature, d_solidGrid,
         d_fanPositions, d_fanDirections, numFans, dt
@@ -735,9 +779,16 @@ extern "C" void runFluidSimulation(
     solvePressureProjection(
         d_velocityField, d_pressureField, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
     );
-    advectDiffusionHeatKernel<<<grid, block>>>(
-        d_temperature, d_tempTemperature, d_velocityField, d_speedField, d_heatSources, d_solidGrid, dt
+    advectKernel<<<grid, block>>>(
+        d_temperature, d_velocityField, d_speedField, d_tempSum, d_weightSum, d_solidGrid, dt
     );
     CUDA_CHECK(cudaDeviceSynchronize());
-    CUDA_CHECK(cudaMemcpy(d_temperature, d_tempTemperature, numCells * sizeof(float), cudaMemcpyDeviceToDevice));
+    normalizeForwardAdvected<<<grid, block>>>(
+        d_tempTemperature, d_tempSum, d_weightSum, d_temperature, d_solidGrid
+    );
+    CUDA_CHECK(cudaDeviceSynchronize());
+    diffuseKernel<<<grid, block>>>(
+        d_tempTemperature, d_temperature, d_heatSources, d_solidGrid, dt
+    );
+    CUDA_CHECK(cudaDeviceSynchronize());
 }

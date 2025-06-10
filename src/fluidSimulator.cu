@@ -323,6 +323,7 @@ __global__ void pressureJacobianKernel(
 __global__ void subtractPressureGradientKernel(
     float* __restrict__ velocity,
     const float* __restrict__ pressure,
+    const float* __restrict__ temperature,
     const unsigned char* __restrict__ solidGrid,
     float dt
 ){
@@ -340,13 +341,16 @@ __global__ void subtractPressureGradientKernel(
     float pressureGradientX = 0.0f;
     float pressureGradientY = 0.0f;
     float pressureGradientZ = 0.0f;
+    float tempDiff = temperature[idx] - c_ambientTemperature;
     if(i>0 && i<c_GX-1){
         int leftIdx = idx3D(i-1, j, k, c_GX, c_GY);
         int rightIdx = idx3D(i+1, j, k, c_GX, c_GY);
         float pLeft = pressure[leftIdx];
         float pRight = pressure[rightIdx];
-        if(solidGrid[leftIdx] != 0) pLeft = pressure[idx] + (pressure[idx] - pRight);
-        if(solidGrid[rightIdx] != 0) pRight = pressure[idx] + (pressure[idx] - pLeft);
+        if(solidGrid[leftIdx] != 0) pLeft = pressure[idx] + tempDiff * 0.2f;
+        else pLeft += (temperature[leftIdx] - c_ambientTemperature) * 0.1f;
+        if(solidGrid[rightIdx] != 0) pRight = pressure[idx] + tempDiff * 0.2f;
+        else pRight += (temperature[rightIdx] - c_ambientTemperature) * 0.1f;
         pressureGradientX = (pRight - pLeft) / (2.0f * c_cellSizeX);
     }
     if(j>0 && j<c_GY-1){
@@ -354,8 +358,10 @@ __global__ void subtractPressureGradientKernel(
         int upIdx = idx3D(i, j+1, k, c_GX, c_GY);
         float pDown = pressure[downIdx];
         float pUp = pressure[upIdx];
-        if(solidGrid[downIdx] != 0) pDown = pressure[idx] + (pressure[idx] - pUp);
-        if(solidGrid[upIdx] != 0) pUp = pressure[idx] + (pressure[idx] - pDown);
+        if(solidGrid[downIdx] != 0) pDown = pressure[idx] + tempDiff * 0.2f;
+        else pDown += (temperature[downIdx] - c_ambientTemperature) * 0.1f;
+        if(solidGrid[upIdx] != 0) pUp = pressure[idx] + tempDiff * 0.2f;
+        else pUp += (temperature[upIdx] - c_ambientTemperature) * 0.1f;
         pressureGradientY = (pUp - pDown) / (2.0f * c_cellSizeY);
     }
     if(k>0 && k<c_GZ-1){
@@ -363,8 +369,10 @@ __global__ void subtractPressureGradientKernel(
         int frontIdx = idx3D(i, j, k+1, c_GX, c_GY);
         float pBack = pressure[backIdx];
         float pFront = pressure[frontIdx];
-        if(solidGrid[backIdx] != 0) pBack = pressure[idx] + (pressure[idx] - pFront);
-        if(solidGrid[frontIdx] != 0) pFront = pressure[idx] + (pressure[idx] - pBack);
+        if(solidGrid[backIdx] != 0) pBack = pressure[idx] + tempDiff * 0.2f;
+        else pBack += (temperature[backIdx] - c_ambientTemperature) * 0.1f;
+        if(solidGrid[frontIdx] != 0) pFront = pressure[idx] + tempDiff * 0.2f;
+        else pFront += (temperature[frontIdx] - c_ambientTemperature) * 0.1f;
         pressureGradientZ = (pFront - pBack) / (2.0f * c_cellSizeZ);
     }
     velocity[idx * 3 + 0] -= pressureGradientX * dt;
@@ -374,7 +382,8 @@ __global__ void subtractPressureGradientKernel(
 
 __global__ void enforceBoundaryConditionsKernel(
     float* __restrict__ velocity,
-    const unsigned char* __restrict__ solidGrid
+    const unsigned char* __restrict__ solidGrid,
+    const float* __restrict__ temperature
 ){
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
@@ -388,12 +397,14 @@ __global__ void enforceBoundaryConditionsKernel(
         return;
     }
     float3 v = reinterpret_cast<float3*>(velocity)[idx];
-    if(i>0 && solidGrid[idx3D(i-1, j, k, c_GX, c_GY)] != 0 && v.x < 0.0f) v.x = 0.0f;
-    if(i<c_GX-1 && solidGrid[idx3D(i+1, j, k, c_GX, c_GY)] != 0 && v.x > 0.0f) v.x = 0.0f;
-    if(j>0 && solidGrid[idx3D(i, j-1, k, c_GX, c_GY)] != 0 && v.y < 0.0f) v.y = 0.0f;
-    if(j<c_GY-1 && solidGrid[idx3D(i, j+1, k, c_GX, c_GY)] != 0 && v.y > 0.0f) v.y = 0.0f;
-    if(k>0 && solidGrid[idx3D(i, j, k-1, c_GX, c_GY)] != 0 && v.z < 0.0f) v.z = 0.0f;
-    if(k<c_GZ-1 && solidGrid[idx3D(i, j, k+1, c_GX, c_GY)] != 0 && v.z > 0.0f) v.z = 0.0f;
+    float tempDiff = temperature[idx] - c_ambientTemperature;
+    float pressureMultiplier = 1.0f + fminf(tempDiff * 0.02f , 2.0f);
+    if(i>0 && solidGrid[idx3D(i-1, j, k, c_GX, c_GY)] != 0 && v.x < 0.0f) v.x = -v.x * 0.8 * pressureMultiplier;
+    if(i<c_GX-1 && solidGrid[idx3D(i+1, j, k, c_GX, c_GY)] != 0 && v.x > 0.0f) v.x = -v.x * 0.8 * pressureMultiplier;
+    if(j>0 && solidGrid[idx3D(i, j-1, k, c_GX, c_GY)] != 0 && v.y < 0.0f) v.y = -v.y * 0.8 * pressureMultiplier;
+    if(j<c_GY-1 && solidGrid[idx3D(i, j+1, k, c_GX, c_GY)] != 0 && v.y > 0.0f) v.y = -v.y * 0.8 * pressureMultiplier;
+    if(k>0 && solidGrid[idx3D(i, j, k-1, c_GX, c_GY)] != 0 && v.z < 0.0f) v.z = -v.z * 0.8 * pressureMultiplier;
+    if(k<c_GZ-1 && solidGrid[idx3D(i, j, k+1, c_GX, c_GY)] != 0 && v.z > 0.0f) v.z = -v.z * 0.8 * pressureMultiplier;
     reinterpret_cast<float3*>(velocity)[idx] = v;
 }
 
@@ -545,7 +556,6 @@ __global__ void diffuseKernel(
     float heat = c_heatSourceStrength * heatSources[idx] / (1.225f * 1005.0f * cellVolume);
     float diffusionSum = 0.0f;
     float totalDiffusionCoeff = 0.0f;
-    int validNeighbors = 0;
     float cellSizes[3] = {c_cellSizeX, c_cellSizeY, c_cellSizeZ};
     for(int n = 0; n < 6; n++){
         int ni = i + neighbors[n][0];
@@ -561,7 +571,6 @@ __global__ void diffuseKernel(
             float diffusionCoeff = c_thermalDiffusivity / (h * h);
             diffusionSum += diffusionCoeff * (neighborTemp - T0);
             totalDiffusionCoeff += diffusionCoeff;
-            validNeighbors++;
         }
     }
     float alpha = totalDiffusionCoeff * dt;
@@ -574,6 +583,7 @@ __global__ void diffuseKernel(
 __host__ void solvePressureProjection(
     float* d_velocity,
     float* d_pressureField,
+    float* d_temperature,
     unsigned char* d_solidGrid,
     int GX, int GY, int GZ,
     float dt
@@ -626,11 +636,11 @@ __host__ void solvePressureProjection(
     }
     CUDA_CHECK(cudaMemcpy(d_pressureField, d_pressure_in, numCells * sizeof(float), cudaMemcpyDeviceToDevice));
     subtractPressureGradientKernel<<<grid, block>>>(
-        d_velocity, d_pressure_in, d_solidGrid, dt
+        d_velocity, d_pressure_in, d_temperature, d_solidGrid, dt
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     enforceBoundaryConditionsKernel<<<grid, block>>>(
-        d_velocity, d_solidGrid
+        d_velocity, d_solidGrid, d_temperature
     );
     CUDA_CHECK(cudaDeviceSynchronize());
 }
@@ -861,7 +871,7 @@ extern "C" void runFluidSimulation(
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaMemcpy(d_velocityField, d_tempVelocity, numCells * 3 * sizeof(float), cudaMemcpyDeviceToDevice));
     solvePressureProjection(
-        d_velocityField, d_pressureField, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
+        d_velocityField, d_pressureField, d_temperature, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
     );
     advectKernel<<<grid, block>>>(
         d_temperature, d_velocityField, d_speedField, d_tempSum, d_weightSum, d_solidGrid, dt

@@ -489,19 +489,36 @@ __global__ void advectKernel(
     wx = fminf(fmaxf(wx, 0.0f), 1.0f);
     wy = fminf(fmaxf(wy, 0.0f), 1.0f);
     wz = fminf(fmaxf(wz, 0.0f), 1.0f);
-    for(int dx=0; dx<=1; dx++){
-        for(int dy=0; dy<=1; dy++){
-            for(int dz=0; dz<=1; dz++){
+    float sumValidWeights = 0.0f;
+    for(int dx=-1; dx<=1; dx++){
+        for(int dy=-1; dy<=1; dy++){
+            for(int dz=-1; dz<=1; dz++){
                 int nx = xi + dx;
                 int ny = yi + dy;
                 int nz = zi + dz;
                 if(nx<0 || nx>=c_GX || ny<0 || ny>=c_GY || nz<0 || nz>=c_GZ) continue;
                 int nidx = idx3D(nx, ny, nz, c_GX, c_GY);
-                if(solidGrid[nidx]!=0) continue;
                 float weight = (dx ? wx : (1.0f-wx)) * (dy ? wy : (1.0f-wy)) * (dz ? wz : (1.0f-wz));
                 if(weight > 1e-6f){
                     atomicAdd(&tempSum[nidx], temp * weight);
                     atomicAdd(&weightSum[nidx], weight);
+                    sumValidWeights += weight;
+                }
+            }
+        }
+    }
+    float lostWeight = 1.0f - sumValidWeights;
+    if(lostWeight > 1e-6f){
+        for(int dx=-1; dx<=1; dx++){
+            for(int dy=-1; dy<=1; dy++){
+                for(int dz=-1; dz<=1; dy++){
+                    int nx = xi + dx;
+                    int ny = yi + dy;
+                    int nz = zi + dz;
+                    if(nx<0 || nx>=c_GX || ny<0 || ny>=c_GY || nz<0 || nz>=c_GZ) continue;
+                    int nidx = idx3D(nx, ny, nz, c_GX, c_GY);
+                    atomicAdd(&tempSum[nidx], temp * lostWeight / 27.0f);
+                    atomicAdd(&weightSum[nidx], lostWeight / 27.0f);
                 }
             }
         }
@@ -536,13 +553,7 @@ __global__ void diffuseKernel(
     int k = blockIdx.z * blockDim.z + threadIdx.z;
     if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
     int idx = idx3D(i, j, k, c_GX, c_GY);
-    if(solidGrid[idx] != 0){
-        const float coolingCoefficient = 0.1f;
-        float inv = 1.0f / (1.0f + coolingCoefficient * dt);
-        float cooled = (tempAdv[idx] + coolingCoefficient * dt * c_ambientTemperature) * inv;
-        tempOut[idx] = cooled;
-        return;
-    }
+    const float coolingCoefficient = 2.0f;
     float T0 = tempAdv[idx];
     const int neighbors[6][3] = {
         {-1, 0, 0},
@@ -563,18 +574,22 @@ __global__ void diffuseKernel(
         int nk = k + neighbors[n][2];
         if(ni >= 0 && ni < c_GX && nj >= 0 && nj < c_GY && nk >= 0 && nk < c_GZ){
             int nidx = idx3D(ni, nj, nk, c_GX, c_GY);
-            float neighborTemp;
-            if(solidGrid[nidx] != 0) neighborTemp = c_ambientTemperature;
-            else neighborTemp = tempAdv[nidx];
+            float neighborTemp = tempAdv[nidx];
             int axis = n / 2;
             float h = cellSizes[axis];
-            float diffusionCoeff = c_thermalDiffusivity / (h * h);
+            float thermalConductivity;
+            if(solidGrid[idx]==0&&solidGrid[nidx]==0) thermalConductivity = c_thermalDiffusivity;
+            else if(solidGrid[idx]!=0&&solidGrid[nidx]!=0) thermalConductivity = c_thermalDiffusivity * 50.0f;
+            else thermalConductivity = c_thermalDiffusivity * 10.0f;
+            float diffusionCoeff = thermalConductivity / (h * h);
             diffusionSum += diffusionCoeff * (neighborTemp - T0);
             totalDiffusionCoeff += diffusionCoeff;
         }
     }
     float alpha = totalDiffusionCoeff * dt;
     float newTemp = (T0 + alpha * (diffusionSum / totalDiffusionCoeff) + heat) / (1.0f + alpha);
+    float invF = 1.0f / (1.0f + coolingCoefficient * dt);
+    newTemp = (newTemp + coolingCoefficient * dt * c_ambientTemperature) * invF;
     newTemp = fmaxf(newTemp, c_ambientTemperature - 10.0f);
     newTemp = fminf(newTemp, c_ambientTemperature + 200.0f);
     tempOut[idx] = newTemp;
@@ -778,23 +793,6 @@ __global__ void velocityUpdateKernel(
         float maxBuoyancyAccel = 20.0f;
         buoyancyForce = fminf(fmaxf(buoyancyForce, -maxBuoyancyAccel), maxBuoyancyAccel);
         newVel[1] -= buoyancyForce * dt;
-        if(tempDiff > 20.0f){
-            float thermalSpreadForce = fminf(tempDiff * 0.0002f, 0.01f);
-            float gradX = 0.0f;
-            float gradZ = 0.0f;
-            if(i > 0 && i < c_GX - 1){
-                int leftIdx = idx3D(i - 1, j, k, c_GX, c_GY);
-                int rightIdx = idx3D(i + 1, j, k, c_GX, c_GY);
-                if(solidGrid[leftIdx]==0 && solidGrid[rightIdx]==0) gradX = (temperature[rightIdx] - temperature[leftIdx]) / (2.0f * c_cellSizeX);
-            }
-            if(k > 0 && k < c_GZ - 1){
-                int backIdx = idx3D(i, j, k - 1, c_GX, c_GY);
-                int frontIdx = idx3D(i, j, k + 1, c_GX, c_GY);
-                if(solidGrid[backIdx]==0 && solidGrid[frontIdx]==0) gradZ = (temperature[frontIdx] - temperature[backIdx]) / (2.0f * c_cellSizeZ);
-            }
-            newVel[0] -= gradX * thermalSpreadForce * dt;
-            newVel[2] -= gradZ * thermalSpreadForce * dt;
-        }
     }
     if(tempDiff > 5.0f){
         float gradX = 0.0f;
@@ -820,10 +818,11 @@ __global__ void velocityUpdateKernel(
         float thermalVelocityY = -gradY * convectionStrength;
         float thermalVelocityZ = -gradZ * convectionStrength;
         if(tempDiff > 20.0f){
+            float thermalSpreadForce = fminf(tempDiff * 0.0002f, 0.01f);
             float circX = (worldZ - c_worldMinZ - (c_worldMaxZ - c_worldMinZ) * 0.5f) * 0.02f;
             float circZ = -(worldX - c_worldMinX - (c_worldMaxX - c_worldMinX) * 0.5f) * 0.02f;
-            thermalVelocityX += circX;
-            thermalVelocityZ += circZ;
+            thermalVelocityX += thermalSpreadForce * circX;
+            thermalVelocityZ += thermalSpreadForce * circZ;
         }
         newVel[0] += thermalVelocityX * dt;
         newVel[1] += thermalVelocityY * dt;

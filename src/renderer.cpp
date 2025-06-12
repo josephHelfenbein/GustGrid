@@ -36,6 +36,7 @@
 #define ioShieldSource "./src/models/ioshield.obj"
 #define shieldSource "./src/models/shield.obj"
 #define glassSource "./src/models/glass.obj"
+#define fanSource "./src/models/fan.obj"
 #define topFanSource "./src/models/topfan.obj"
 #define frontFanSource "./src/models/frontfan.obj"
 #define backFanSource "./src/models/backfan.obj"
@@ -68,6 +69,8 @@ float camPitch = PI / 12;
 float camRadius = 15.0f;
 glm::vec3 camPos = glm::vec3(sin(camYaw) * camRadius, sin(camPitch) * camRadius, cos(camYaw) * camRadius);
 float camFOV = 45.0f;
+
+float fanStrength = 10.0f;
 
 float deltaTime = 0.0f;
 float lastFrame = 0.0f;
@@ -404,7 +407,14 @@ unsigned int loadTexture(const char* file){
     }
     return textureID;
 }
-void drawObject(unsigned int textureIDs[], unsigned int shaderProgram, unsigned int VAO, unsigned int indexCount){
+void drawObject(unsigned int textureIDs[], unsigned int shaderProgram, unsigned int VAO, unsigned int indexCount, glm::vec3 location = glm::vec3(0.0f), glm::vec3 rotation = glm::vec3(0.0f), glm::vec3 scale = glm::vec3(1.0f)){
+    glm::mat4 model = glm::mat4(1.0f);
+    model = glm::translate(model, location);
+    model = glm::scale(model, scale);
+    model = glm::rotate(model, rotation.x, glm::vec3(1.0f, 0.0f, 0.0f));
+    model = glm::rotate(model, rotation.y, glm::vec3(0.0f, 1.0f, 0.0f));
+    model = glm::rotate(model, rotation.z, glm::vec3(0.0f, 0.0f, 1.0f));
+    glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, textureIDs[0]);
     glActiveTexture(GL_TEXTURE1);
@@ -611,7 +621,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     
     glEnable(GL_DEPTH_TEST);
 
-    std::array<ModelData, 13> models;
+    std::array<ModelData, 14> models;
 
     unsigned int caseVAO, caseVBO, caseEBO, caseIndexCount;
     unsigned int cpuVAO, cpuVBO, cpuEBO, cpuIndexCount;
@@ -622,11 +632,12 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     unsigned int ioShieldVAO, ioShieldVBO, ioShieldEBO, ioShieldIndexCount;
     unsigned int shieldVAO, shieldVBO, shieldEBO, shieldIndexCount;
     unsigned int glassVAO, glassVBO, glassEBO, glassIndexCount;
+    unsigned int fanVAO, fanVBO, fanEBO, fanIndexCount;
     unsigned int topFanVAO, topFanVBO, topFanEBO, topFanIndexCount;
     unsigned int frontFanVAO, frontFanVBO, frontFanEBO, frontFanIndexCount;
     unsigned int backFanVAO, backFanVBO, backFanEBO, backFanIndexCount;
     unsigned int cpuFanVAO, cpuFanVBO, cpuFanEBO, cpuFanIndexCount;
-    unsigned int* modelInfos[52] = {
+    unsigned int* modelInfos[56] = {
         &caseVAO, &caseVBO, &caseEBO, &caseIndexCount,
         &cpuVAO, &cpuVBO, &cpuEBO, &cpuIndexCount,
         &gpuVAO, &gpuVBO, &gpuEBO, &gpuIndexCount,
@@ -636,6 +647,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         &ioShieldVAO, &ioShieldVBO, &ioShieldEBO, &ioShieldIndexCount,
         &shieldVAO, &shieldVBO, &shieldEBO, &shieldIndexCount,
         &glassVAO, &glassVBO, &glassEBO, &glassIndexCount,
+        &fanVAO, &fanVBO, &fanEBO, &fanIndexCount,
         &topFanVAO, &topFanVBO, &topFanEBO, &topFanIndexCount,
         &frontFanVAO, &frontFanVBO, &frontFanEBO, &frontFanIndexCount,
         &backFanVAO, &backFanVBO, &backFanEBO, &backFanIndexCount,
@@ -650,10 +662,11 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     std::thread ioShieldThread([&](){ loadModelData(ioShieldSource, models[6]); });
     std::thread shieldThread([&](){ loadModelData(shieldSource, models[7]); });
     std::thread glassThread([&](){ loadModelData(glassSource, models[8]); });
-    std::thread topFanThread([&](){ loadModelData(topFanSource, models[9]); });
-    std::thread frontFanThread([&](){ loadModelData(frontFanSource, models[10]); });
-    std::thread backFanThread([&](){ loadModelData(backFanSource, models[11]); });
-    std::thread cpuFanThread([&](){ loadModelData(cpuFanSource, models[12]); });
+    std::thread fanThread([&](){ loadModelData(fanSource, models[9]); });
+    std::thread topFanThread([&](){ loadModelData(topFanSource, models[10]); });
+    std::thread frontFanThread([&](){ loadModelData(frontFanSource, models[11]); });
+    std::thread backFanThread([&](){ loadModelData(backFanSource, models[12]); });
+    std::thread cpuFanThread([&](){ loadModelData(cpuFanSource, models[13]); });
     caseThread.join();
     cpuThread.join();
     gpuThread.join();
@@ -663,11 +676,12 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     ioShieldThread.join();
     shieldThread.join();
     glassThread.join();
+    fanThread.join();
     topFanThread.join();
     frontFanThread.join();
     backFanThread.join();
     cpuFanThread.join();
-    for(int i=0; i<13; i++){
+    for(int i=0; i<14; i++){
         if(!models[i].loaded){
             std::cerr<<"Model data for model "<<i<<" not loaded."<<std::endl;
             return -1;
@@ -861,18 +875,24 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         drawObject(motherboardTextures, shaderProgram, motherboardVAO, motherboardIndexCount);
         drawObject(psuTextures, shaderProgram, psuVAO, psuIndexCount);
         drawObject(ioShieldTextures, shaderProgram, ioShieldVAO, ioShieldIndexCount);
-        if(cpuFanEnabled) drawObject(caseTextures, shaderProgram, cpuFanVAO, cpuFanIndexCount);
-        if(topFanEnabled) drawObject(caseTextures, shaderProgram, topFanVAO, topFanIndexCount);
-        if(frontFanEnabled) drawObject(caseTextures, shaderProgram, frontFanVAO, frontFanIndexCount);
+        if(cpuFanEnabled){
+            drawObject(caseTextures, shaderProgram, fanVAO, fanIndexCount, glm::vec3(0.112314f, 2.302f, 0.894292f), glm::vec3(0.0f, 0.0f, currentFrame * fanStrength), glm::vec3(0.63f, 0.63f, 1.0f));
+            drawObject(caseTextures, shaderProgram, cpuFanVAO, cpuFanIndexCount);
+        }
+        if(topFanEnabled){
+            drawObject(caseTextures, shaderProgram, fanVAO, fanIndexCount, glm::vec3(-0.18513f, 4.0492f, 1.5371f), glm::vec3(-PI / 2.0f, 0.0f, currentFrame * fanStrength));
+            drawObject(caseTextures, shaderProgram, topFanVAO, topFanIndexCount);
+        }
+        if(frontFanEnabled){
+            drawObject(caseTextures, shaderProgram, fanVAO, fanIndexCount, glm::vec3(0.48427, 2.60047, 3.42548), glm::vec3(0.0f, 0.0f, currentFrame * fanStrength));
+            drawObject(caseTextures, shaderProgram, frontFanVAO, frontFanIndexCount);
+        }
 
         for(int i=0; i<3; i++){
             if(backFanLocations[i]>0.0f) continue;
-            glm::mat4 backFanLocation = glm::mat4(1.0f);
-            backFanLocation = glm::translate(backFanLocation, glm::vec3(0, backFanLocations[i], 0));
-            glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &backFanLocation[0][0]);
-            drawObject(caseTextures, shaderProgram, backFanVAO, backFanIndexCount);
+            drawObject(caseTextures, shaderProgram, fanVAO, fanIndexCount, glm::vec3(0.0f, 2.36343f + backFanLocations[i], -3.36426), glm::vec3(0.0f, 0.0f, currentFrame * fanStrength));
+            drawObject(caseTextures, shaderProgram, backFanVAO, backFanIndexCount, glm::vec3(0, backFanLocations[i], 0));
         }
-        glUniformMatrix4fv(glGetUniformLocation(shaderProgram, "model"), 1, GL_FALSE, &model[0][0]);
         drawObject(caseTextures, shaderProgram, caseVAO, caseIndexCount);
         glDepthMask(GL_FALSE);
         glEnable(GL_DEPTH_TEST);

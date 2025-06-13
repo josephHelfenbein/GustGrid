@@ -31,7 +31,8 @@
 <br />
 <div align="center">
 
-<a href="https://github.com/josephHelfenbein/GustGrid">
+<a href="https://github.com/josephHelfenbein/recapgrid">
+    <img src="src/textures/gustgrid.svg" alt="Logo" width="80" height="80">
   </a>
 
 <h3 align="center">GustGrid</h3>

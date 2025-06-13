@@ -101,7 +101,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
                     if(gpuEnabled && worldZ > -0.53f && worldZ < 3.7 && worldY > 0.8f && worldY < 1.09f && worldX < 0.5f) heatSource = 2.0f / 1.6f;
 
                     // cpu
-                    if(worldZ > 1.2f && worldZ < 1.9f && worldY < 2.7f && worldY > 2.0f && worldX < -1.2 && worldX > -1.7) heatSource = 0.8f / 0.25f;
+                    if(worldZ > 1.2f && worldZ < 1.9f && worldY < 2.7f && worldY > 2.0f && worldX < -1.2f && worldX > -1.7f) heatSource = 0.8f / 0.25f;
 
                     // psu
                     if(worldY < -2.2f && worldY > -2.6f && worldZ > 0.4f && worldZ < 3.6f && worldX < 1.4f && worldX > -1.4f) heatSource = 0.28f / 3.6f;

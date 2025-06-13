@@ -149,6 +149,9 @@ float possibleSliderXValues[3];
 int hoverElement = -1;
 bool *displayingPressure = nullptr;
 
+static inline int idx3D(int x, int y, int z){
+    return x + y * gridSizeX + z * gridSizeX * gridSizeY;
+}
 void framebufferSizeCallback(GLFWwindow* window, int width, int height){
     glViewport(0, 0, width, height);
     SCR_WIDTH = width;
@@ -990,6 +993,19 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         drawText(textProgram, textVAO, textVBO, "22°C", glm::vec2(55.0f, SCR_HEIGHT - 420.0f), 0.3f, glm::vec3(1.0f));
         drawText(textProgram, textVAO, textVBO, "61°C", glm::vec2(55.0f, SCR_HEIGHT - 270.0f), 0.3f, glm::vec3(1.0f));
         drawText(textProgram, textVAO, textVBO, "100°C", glm::vec2(55.0f, SCR_HEIGHT - 130.0f), 0.3f, glm::vec3(1.0f));
+        const char* cpuTempPrefix = "CPU Temperature: ";
+        char cpuText[25];
+        //  (-1.45f+2.0f)/(4.0f/gridSizeX)-0.5f, (2.45f+4.5f)/(9.0f/gridSizeY)-0.5f, (1.45f+4.0f)/(8.0f/gridSizeZ)-0.5f)
+        float cpuTemp = temperatureField[idx3D(8, 197, 87)];
+        snprintf(cpuText, sizeof(cpuText), "CPU Temperature: %0.2f°C", cpuTemp);
+        drawText(textProgram, textVAO, textVBO, cpuText, glm::vec2(SCR_WIDTH - 200.0f, 55.0f), 0.3f, glm::vec3(1.0f));
+        if(gpuEnabled){
+            char gpuText[25];
+            //  (0.2f+2.0f)/(4.0f/gridSizeX)-0.5f, (1.08f+4.5f)/(9.0f/gridSizeY)-0.5f, (-0.4+4.0f)/(8.0f/gridSizeZ)-0.5f)
+            float gpuTemp = temperatureField[idx3D(34, 158, 57)];
+            snprintf(gpuText, sizeof(gpuText), "GPU Temperature: %0.2f°C", gpuTemp);
+            drawText(textProgram, textVAO, textVBO, gpuText, glm::vec2(SCR_WIDTH - 200.0f, 25.0f), 0.3f, glm::vec3(1.0f));
+        }
         glBindVertexArray(0);
 
         glfwSwapBuffers(window);

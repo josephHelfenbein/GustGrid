@@ -589,6 +589,92 @@ __global__ void normalizeForwardAdvected(
     tempOut[idx] = (w > 1e-6f) ? tempSum[idx] / w : c_ambientTemperature;
 }
 
+__global__ void convectiveHeatKernel(
+    float* __restrict__ temperature,
+    const float* __restrict__ velocity,
+    const float* __restrict__ speed,
+    const unsigned char* __restrict__ solidGrid,
+    float dt
+){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
+    int idx = idx3D(i, j, k, c_GX, c_GY);
+    float currentTemp = temperature[idx];
+    float tempDiff = currentTemp - c_ambientTemperature;
+    if(fabs(tempDiff)<1.0f) return;
+    float3 v = make_float3(
+        velocity[idx * 3 + 0],
+        velocity[idx * 3 + 1],
+        velocity[idx * 3 + 2]
+    );
+    float currentSpeed = speed[idx];
+    float totalHeatTransfer = 0.0f;
+    float totalWeight = 0.0f;
+    const int neighbors[6][3] = {
+        {-1, 0, 0}, {1, 0, 0},
+        {0, -1, 0}, {0, 1, 0},
+        {0, 0, -1}, {0, 0, 1}
+    };
+    for(int n=0; n<6; n++){
+        int ni = i + neighbors[n][0];
+        int nj = j + neighbors[n][1];
+        int nk = k + neighbors[n][2];
+        if(ni < 0 || ni >= c_GX || nj < 0 || nj >= c_GY || nk < 0 || nk >= c_GZ) continue;
+        int nidx = idx3D(ni, nj, nk, c_GX, c_GY);
+        float neighborTemp = temperature[nidx];
+        float neighborSpeed = speed[nidx];
+        float3 neighborVel = make_float3(
+            velocity[nidx * 3 + 0],
+            velocity[nidx * 3 + 1],
+            velocity[nidx * 3 + 2]
+        );
+        float3 relativeVel = make_float3(
+            v.x - neighborVel.x,
+            v.y - neighborVel.y,
+            v.z - neighborVel.z
+        );
+        float relativeSpeed = sqrtf(
+            relativeVel.x * relativeVel.x +
+            relativeVel.y * relativeVel.y +
+            relativeVel.z * relativeVel.z
+        );
+        float3 direction = make_float3(
+            neighbors[n][0],
+            neighbors[n][1],
+            neighbors[n][2]
+        );
+        float flowAlignment = relativeVel.x * direction.x + relativeVel.y * direction.y + relativeVel.z * direction.z;
+        float convectionCoeff = 0.1f + fminf(relativeSpeed * 0.5f, 2.0f);
+        if(flowAlignment > 0.1f) convectionCoeff *= (1.0f + flowAlignment * 2.0f);
+        float tempGradient = neighborTemp - currentTemp;
+        float pullingEffect = 1.0f;
+        if(neighborSpeed > 1.0f && neighborTemp < currentTemp){
+            pullingEffect = 1.0f + fminf(neighborSpeed * 0.3f, 1.5f);
+            if(flowAlignment>0) pullingEffect *= (1.0f + flowAlignment * 0.5f);
+        }
+        if(tempDiff > 5.0f && neighborSpeed > 0.5f){
+            float stipingEffect = fminf(neighborSpeed * 0.2f, 1.0f);
+            pullingEffect *= (1.0f + stipingEffect);
+        }
+        if(solidGrid[idx]!=0 && solidGrid[nidx]==0 && neighborSpeed > 0.2f){
+            pullingEffect *= (1.0f + neighborSpeed * 0.4f);
+            convectionCoeff *= 2.0f;
+        }
+        float heatTransfer = convectionCoeff * tempGradient * pullingEffect;
+        float weight = 1.0f + relativeSpeed * 0.1f;
+        totalHeatTransfer += heatTransfer * weight;
+        totalWeight += weight;
+    }
+    if(totalWeight > 0.0f){
+        float avgHeatTransfer = totalHeatTransfer / totalWeight;
+        float maxTransferRate = fabs(tempDiff) * 0.3f;
+        avgHeatTransfer = fminf(fmaxf(avgHeatTransfer, -maxTransferRate), maxTransferRate);
+        temperature[idx] = currentTemp + avgHeatTransfer * dt;
+    }
+}
+
 __global__ void diffuseKernel(
     const float* __restrict__ tempAdv,
     float* __restrict__ tempOut,
@@ -969,6 +1055,10 @@ extern "C" void runFluidSimulation(
     CUDA_CHECK(cudaDeviceSynchronize());
     normalizeForwardAdvected<<<grid, block>>>(
         d_tempTemperature, d_tempSum, d_weightSum, d_temperature, d_solidGrid
+    );
+    CUDA_CHECK(cudaDeviceSynchronize());
+    convectiveHeatKernel<<<grid, block>>>(
+        d_tempTemperature, d_velocityField, d_speedField, d_solidGrid, dt
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     diffuseKernel<<<grid, block>>>(

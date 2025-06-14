@@ -90,7 +90,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
                     if(worldZ > 3.8f && (worldY < 1.5f || worldX < -0.6f || worldY > 3.8f)) insideSolid = true;
 
                     // gpu
-                    if(gpuEnabled && ((worldZ > -0.53f && worldZ < -0.46f) || (worldZ > 1.08f && worldZ < 1.85) || worldZ > 3.5) && worldY > 0.54f && worldY < 1.09f && worldX < 0.5f) insideSolid = true;
+                    if(gpuEnabled && worldZ > -0.53f && worldZ < 3.7 && worldY > 0.95f && worldY < 1.09f && worldX < 0.5f) insideSolid = true;
 
                     h_solidGrid[index] = insideSolid ? 1 : 0;
 
@@ -135,8 +135,8 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
             h_fanDirections.push_back(cpuDir);
         }
         if(gpuEnabled){
-            float3 gpu1Pos = make_float3(-0.36f, 0.8f, 0.34f);
-            float3 gpu2Pos = make_float3(-0.36f, 0.8f, 2.71f);
+            float3 gpu1Pos = make_float3(-0.36f, 0.75f, 0.34f);
+            float3 gpu2Pos = make_float3(-0.36f, 0.75f, 2.71f);
             float3 gpuDir = make_float3(0.0f, 1.0f, 0.0f);
             h_fanPositions.push_back(gpu1Pos);
             h_fanPositions.push_back(gpu2Pos);

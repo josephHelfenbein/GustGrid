@@ -12,6 +12,7 @@ uniform sampler2D metallicMap;
 uniform sampler2D roughnessMap;
 uniform sampler2D normalMap;
 uniform int isEmissive;
+uniform sampler2D emissionMap;
 
 out vec4 FragColor;
 
@@ -64,8 +65,11 @@ void main(){
     if (mask < 0.2) discard;
 
     if(isEmissive == 1) {
-        FragColor = vec4(albedo, alpha);
-        return;
+        vec3 emissiveColor = texture(emissionMap, texCoord).rgb;
+        if(length(emissiveColor) > 0.01){
+            FragColor = vec4(emissiveColor, 1.0);
+            return;
+        }
     }
 
     vec3 N = getNormalFromMap();

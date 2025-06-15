@@ -1026,8 +1026,8 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         drawText(textProgram, textVAO, textVBO, cpuText, glm::vec2(SCR_WIDTH - 200.0f, 55.0f), 0.3f, glm::vec3(1.0f));
         if(gpuEnabled){
             char gpuText[25];
-            //  (0.2f+2.0f)/(4.0f/gridSizeX)-0.5f, (1.08f+4.5f)/(9.0f/gridSizeY)-0.5f, (-0.4+4.0f)/(8.0f/gridSizeZ)-0.5f)
-            float gpuTemp = temperatureField[idx3D(34, 158, 57)];
+            //  (0.25f+2.0f)/(4.0f/gridSizeX)-0.5f, (0.945f+4.5f)/(9.0f/gridSizeY)-0.5f, (1.585+4.0f)/(8.0f/gridSizeZ)-0.5f)
+            float gpuTemp = temperatureField[idx3D(35, 154, 88)];
             snprintf(gpuText, sizeof(gpuText), "GPU Temperature: %0.2f°C", gpuTemp);
             drawText(textProgram, textVAO, textVBO, gpuText, glm::vec2(SCR_WIDTH - 200.0f, 25.0f), 0.3f, glm::vec3(1.0f));
         }

@@ -142,6 +142,7 @@ private:
     float* d_tempTemperature = nullptr;
     float* d_tempSum = nullptr;
     float* d_weightSum = nullptr;
+    unsigned char* d_fanAccess = nullptr;
     int allocatedGridSize = 0;
 public:
     ~SimulationMemory(){
@@ -158,6 +159,7 @@ public:
         pool.deallocate(d_tempTemperature);
         pool.deallocate(d_tempSum);
         pool.deallocate(d_weightSum);
+        pool.deallocate(d_fanAccess);
         allocatedGridSize = 0;
     }
     void ensureAllocated(int numCells){
@@ -172,6 +174,7 @@ public:
         d_tempTemperature = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_tempSum = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_weightSum = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_fanAccess = static_cast<unsigned char*>(pool.allocate(numCells * 8 * sizeof(unsigned char)));
         allocatedGridSize = numCells;
     }
     float* getDivergence() { return d_divergence; }
@@ -182,6 +185,7 @@ public:
     float* getTempTemperature() { return d_tempTemperature; }
     float* getTempSum() { return d_tempSum; }
     float* getWeightSum() { return d_weightSum; }
+    unsigned char* getFanAccess() { return d_fanAccess; }
     static SimulationMemory& getInstance() {
         static SimulationMemory instance;
         return instance;
@@ -609,7 +613,6 @@ __global__ void convectiveHeatKernel(
         velocity[idx * 3 + 1],
         velocity[idx * 3 + 2]
     );
-    float currentSpeed = speed[idx];
     float totalHeatTransfer = 0.0f;
     float totalWeight = 0.0f;
     const int neighbors[6][3] = {
@@ -791,6 +794,80 @@ __host__ void solvePressureProjection(
     CUDA_CHECK(cudaDeviceSynchronize());
 }
 
+__global__ void updateFanAccessKernel(
+    unsigned char* __restrict__ fanCanAccess,
+    const float3* __restrict__ fanPos,
+    const unsigned char* __restrict__ solidGrid,
+    const int numFans
+){
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    int j = blockIdx.y * blockDim.y + threadIdx.y;
+    int k = blockIdx.z * blockDim.z + threadIdx.z;
+    if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
+    int idx = idx3D(i, j, k, c_GX, c_GY);
+    int numCells = c_GX * c_GY * c_GZ;
+    if(solidGrid[idx] != 0){
+        for(int f = 0; f < numFans; f++){
+            int fanIdx = f * numCells + idx;
+            fanCanAccess[fanIdx] = 0;
+        }
+        return;
+    }
+    float3 targetPos = make_float3(
+        (i + 0.5f) * c_cellSizeX + c_worldMinX,
+        (j + 0.5f) * c_cellSizeY + c_worldMinY,
+        (k + 0.5f) * c_cellSizeZ + c_worldMinZ
+    );
+    for(int f = 0; f < numFans; f++){
+        int fanIdx = f * numCells + idx;
+        float3 fanPosition = fanPos[f];
+        float3 rayDir = make_float3(
+            targetPos.x - fanPosition.x,
+            targetPos.y - fanPosition.y,
+            targetPos.z - fanPosition.z
+        );
+        float rayLength = sqrtf(
+            rayDir.x * rayDir.x +
+            rayDir.y * rayDir.y +
+            rayDir.z * rayDir.z
+        );
+        if(rayLength < fmaxf(c_cellSizeX, fmaxf(c_cellSizeY, c_cellSizeZ))) {
+            fanCanAccess[fanIdx] = 1;
+            continue;
+        }
+        float minCellSize = fminf(c_cellSizeX, fminf(c_cellSizeY, c_cellSizeZ));
+        int numSteps = (int)(rayLength / (minCellSize * 0.5f));
+        float stepSize = rayLength / numSteps;
+        rayDir.x /= rayLength;
+        rayDir.y /= rayLength;
+        rayDir.z /= rayLength;
+        bool hit = false;
+        for(int step=1; step<numSteps; step++){
+            float t = step * stepSize;
+            float3 samplePos = make_float3(
+                fanPosition.x + rayDir.x * t,
+                fanPosition.y + rayDir.y * t,
+                fanPosition.z + rayDir.z * t
+            );
+            int voxelX = (int)floorf((samplePos.x - c_worldMinX) / c_cellSizeX);
+            int voxelY = (int)floorf((samplePos.y - c_worldMinY) / c_cellSizeY);
+            int voxelZ = (int)floorf((samplePos.z - c_worldMinZ) / c_cellSizeZ);
+            if(voxelX < 0 || voxelX >= c_GX
+            || voxelY < 0 || voxelY >= c_GY
+            || voxelZ < 0 || voxelZ >= c_GZ){
+                hit = true;
+                continue;
+            }
+            if(voxelX==i && voxelY==j && voxelZ==k) break;
+            if(solidGrid[idx3D(voxelX, voxelY, voxelZ, c_GX, c_GY)] != 0){
+                hit = true;
+                break;
+            }
+        }
+        fanCanAccess[fanIdx] = hit ? 0 : 1;
+    }
+}
+
 __global__ void velocityUpdateKernel(
     const float* __restrict__ velIn,
     float* __restrict__ velOut,
@@ -798,6 +875,7 @@ __global__ void velocityUpdateKernel(
     const unsigned char* __restrict__ solidGrid,
     const float3* __restrict__ fanPos,
     const float3* __restrict__ fanDir,
+    const unsigned char* __restrict__ fanCanAccess,
     const int numFans,
     float dt
 ){
@@ -876,7 +954,10 @@ __global__ void velocityUpdateKernel(
     float worldY = (j + 0.5f) * c_cellSizeY + c_worldMinY;
     float worldZ = (k + 0.5f) * c_cellSizeZ + c_worldMinZ;
     float3 fanAccum = make_float3(0.0f, 0.0f, 0.0f);
+    int numCells = c_GX * c_GY * c_GZ;
     for(int f=0; f<numFans; f++){
+        int fanIdx = f * numCells + idx;
+        if(fanCanAccess[fanIdx] == 0) continue;
         float3 fanPosition = fanPos[f];
         float3 fanDirection = fanDir[f];
         float3 toCell = make_float3(
@@ -1022,6 +1103,7 @@ extern "C" void runFluidSimulation(
     float3* d_fanDirections,
     float* d_heatSources,
     float* d_temperature,
+    bool shouldResetFanAccess,
     int numFans,
     float dt
 ){
@@ -1038,11 +1120,19 @@ extern "C" void runFluidSimulation(
     float* d_tempTemperature = simMem.getTempTemperature();
     float* d_tempSum = simMem.getTempSum();
     float* d_weightSum = simMem.getWeightSum();
+    unsigned char* d_fanCanAccess = simMem.getFanAccess();
     CUDA_CHECK(cudaMemset(d_tempSum, 0, numCells * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_weightSum, 0, numCells * sizeof(float)));
+    if(shouldResetFanAccess){
+        CUDA_CHECK(cudaMemset(d_fanCanAccess, 1, 8 * numCells * sizeof(unsigned char)));
+        updateFanAccessKernel<<<grid, block>>>(
+            d_fanCanAccess, d_fanPositions, d_solidGrid, numFans
+        );
+        CUDA_CHECK(cudaDeviceSynchronize());
+    }
     velocityUpdateKernel<<<grid, block>>>(
         d_velocityField, d_tempVelocity, d_temperature, d_solidGrid,
-        d_fanPositions, d_fanDirections, numFans, dt
+        d_fanPositions, d_fanDirections, d_fanCanAccess, numFans, dt
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaMemcpy(d_velocityField, d_tempVelocity, numCells * 3 * sizeof(float), cudaMemcpyDeviceToDevice));

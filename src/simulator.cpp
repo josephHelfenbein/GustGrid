@@ -98,7 +98,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
                     if(worldX < -0.95f && worldX > -1.57f && worldY < 3.6f && worldY > 1.2f && worldZ < 0.6f && worldZ > 0.18f) heatSource = 0.04f / 0.62;
 
                     // gpu
-                    if(gpuEnabled && worldZ > -0.53f && worldZ < 3.7 && worldY > 0.8f && worldY < 1.09f && worldX < 0.5f) heatSource = 2.0f / 1.6f;
+                    if(gpuEnabled && worldZ > -0.53f && worldZ < 3.7 && worldY > 0.8f && worldY < 1.09f && worldX < 0.5f) heatSource = 2.0f / 1.4f;
 
                     // cpu
                     if(worldZ > 1.2f && worldZ < 1.9f && worldY < 2.7f && worldY > 2.0f && worldX < -1.2f && worldX > -1.7f) heatSource = 0.8f / 0.25f;
@@ -174,6 +174,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
         d_fanDirections,
         d_heatSources,
         d_temperature,
+        true,
         numFans,
         dt
     );
@@ -188,9 +189,23 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
         if(itemChanged){
             fillOccupancy();
             buildFanLists();
+            runFluidSimulation(
+                gridSizeX, gridSizeY, gridSizeZ,
+                d_velocityField,
+                d_speedField,
+                d_pressureField,
+                d_solidGrid,
+                d_fanPositions,
+                d_fanDirections,
+                d_heatSources,
+                d_temperature,
+                true,
+                numFans,
+                dt
+            );
             itemChanged = false;
         }
-        runFluidSimulation(
+        else runFluidSimulation(
             gridSizeX, gridSizeY, gridSizeZ,
             d_velocityField,
             d_speedField,
@@ -200,6 +215,7 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
             d_fanDirections,
             d_heatSources,
             d_temperature,
+            false,
             numFans,
             dt
         );

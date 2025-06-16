@@ -65,9 +65,26 @@
 <!-- ABOUT THE PROJECT -->
 ## About The Project
 
-(WIP)
-
 GustGrid is a high-performance simulation engine built in C++ and OpenGL, leveraging NVIDIA CUDA to deliver real-time visualization of PC airflow and thermal dynamics. By harnessing GPU-accelerated fluid dynamics, it accurately models heat dissipation, fan performance, and airflow patterns within complex computer chassis geometries. Its intuitive graphical interface allows users to interactively adjust component layouts and cooling configurations, enabling rapid design iterations and optimized thermal management for any PC build.
+
+
+<b>Features:</b>
+<ul>
+<li><b>Voxel-based Fluid & Thermal Simulation:</b> Simulates a 64×256×128 voxel grid (volume pixels), with one CUDA thread per voxel for maximum parallelism.</li>
+
+<li><b>All-in-one Physics:</b> Handles semi-Lagrangian advection, fan thrust, buoyancy, wall interactions, pressure projection, dissipation, convection, and conduction all on the GPU.</li>
+
+<li><b>GPU-powered Pressure Solve:</b> Computes divergence, performs Jacobi iterations in shared memory, subtracts pressure gradients, and enforces boundary conditions to ensure incompressibility.</li>
+
+<li><b>Advanced Heat Transfer:</b> Models convective (wind-chill style) and conductive (solid/fluid-specific diffusivity) heat exchange, alongside explicit heat sources and neighbor dissipation.</li>
+
+<li><b>Interactive OpenGL Renderer:</b> Real-time ray marching volume heatmaps, PBR shading for chassis components, and custom controls for dynamic scene adjustments.</li>
+</ul>
+
+
+<img src="src/textures/screenshot1.png">
+<img src="src/textures/screenshot2.png">
+<img src="src/textures/screenshot3.png">
 
 ### Built With
 
@@ -78,6 +95,48 @@ GustGrid is a high-performance simulation engine built in C++ and OpenGL, levera
 
 
 See the [open issues](https://github.com/josephHelfenbein/GustGrid/issues) for a full list of proposed features (and known issues).
+
+
+### Physics Pipeline (per frame and voxel)
+
+<ol>
+<li><b>Update Fan Visibility:</b></li>
+<ul><li>Ray march from each fan’s world position to the voxel center. If any solid voxel blocks the ray, fan influence is disabled for that fan.</li></ul>
+
+<li><b>Velocity Update (advectKernel):</b>
+<ul>
+<li><b>Advection:</b> Backward-trace voxel positions along velocity, trilinearly sample previous velocity field.</li>
+
+<li><b>Wall Proximity:</b> Scale advection strength by local solid proximity to simulate drag near chassis.</li>
+
+<li><b>Fan Thrust:</b> Add axial and radial forces for voxels within a fan’s beam, attenuated by distance and alignment.</li>
+
+<li><b>Buoyancy:</b> Apply upward acceleration for hot voxels using α·ΔT·g, capped for stability.</li>
+
+<li><b>Thermal Swirl & Back-pressure:</b> Inject swirl in high ΔT regions and push fluid away from solid neighbors for hot pockets.</li>
+</ul>
+<li><b>Pressure Projection</b></li>
+<ul>
+<li><b>Divergence:</b> Compute ∇·u using central differences, treating solids as zero-velocity.</li>
+
+<li><b>Jacobi Solver:</b> Iterate: load local tile in shared memory, average neighbor pressures, subtract divergence·scale, blend with previous pressure (β-relaxation).</li>
+
+<li><b>Velocity Correction:</b> Subtract ∇p from velocity, incorporate thermal-pressure tweaks at boundaries, and reflect velocities into solids.</li>
+</ul>
+<li><b>Temperature Advection & Dissipation</b></li>
+<ul>
+<li><b>Forward-trace Advection:</b> Advect temperature using updated velocity, accumulate into tempSum/weightSum for weighted average.</li>
+
+<li><b>Dissipation:</b> Compute per-voxel dissipation based on ΔT and velocity magnitude, then scatter dissipated energy into neighbors via tempSumDiss.</li>
+
+<li><b>Normalize & Combine:</b> Compute advected temperature = tempSum/weightSum (or fallback), apply keepFraction, then add neighbor-dissipated heat.</li>
+</ul>
+<li><b>Convective & Conductive Heat Exchange</b></li>
+<ul>
+<li><b>Convective Heat:</b> For |ΔT|>threshold, loop over neighbors, compute heat transfer coefficients based on relative velocity and flow alignment, clamp and apply ∂T.</li>
+
+<li><b>Conductive Diffusion:</b> Apply finite-difference diffusion with solid vs fluid diffusivity multipliers, add explicit heat sources, and clamp T to [ambient−10, ambient+200].</li>
+</ol>
 
 ## Prerequisites
 

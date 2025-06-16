@@ -49,7 +49,7 @@ constexpr float pressureTolerance = 1e-4f;
 
 constexpr float thermalDiffusivity = 1.5e-5f;
 constexpr float ambientTemperature = 22.0f;
-constexpr float heatSourceStrength = 2.5f;
+constexpr float heatSourceStrength = 1.0f;
 
 constexpr float thermalExpansionCoefficient = 0.0034f;
 constexpr float gravity = 9.81f;
@@ -142,6 +142,7 @@ private:
     float* d_tempTemperature = nullptr;
     float* d_tempSum = nullptr;
     float* d_weightSum = nullptr;
+    float* d_tempSumDiss = nullptr;
     unsigned char* d_fanAccess = nullptr;
     int allocatedGridSize = 0;
 public:
@@ -159,6 +160,7 @@ public:
         pool.deallocate(d_tempTemperature);
         pool.deallocate(d_tempSum);
         pool.deallocate(d_weightSum);
+        pool.deallocate(d_tempSumDiss);
         pool.deallocate(d_fanAccess);
         allocatedGridSize = 0;
     }
@@ -174,6 +176,7 @@ public:
         d_tempTemperature = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_tempSum = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_weightSum = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_tempSumDiss = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_fanAccess = static_cast<unsigned char*>(pool.allocate(numCells * 8 * sizeof(unsigned char)));
         allocatedGridSize = numCells;
     }
@@ -185,6 +188,7 @@ public:
     float* getTempTemperature() { return d_tempTemperature; }
     float* getTempSum() { return d_tempSum; }
     float* getWeightSum() { return d_weightSum; }
+    float* getTempSumDiss() { return d_tempSumDiss; }
     unsigned char* getFanAccess() { return d_fanAccess; }
     static SimulationMemory& getInstance() {
         static SimulationMemory instance;
@@ -461,6 +465,7 @@ __global__ void advectKernel(
     float* __restrict__ speed,
     float* __restrict__ tempSum,
     float* __restrict__ weightSum,
+    float* __restrict__ tempSumDiss,
     const unsigned char* __restrict__ solidGrid,
     float dt
 ){
@@ -473,7 +478,7 @@ __global__ void advectKernel(
     float tempDiff = temp - c_ambientTemperature;
     float tempFactor = fminf(tempDiff / 50.0f, 1.0f);
     float baseDissipationRate = 0.02f + tempFactor * 0.08f;
-    float maxDissipationRate = 0.3f + tempFactor * 0.6f;
+    float maxDissipationRate = 0.3f + tempFactor * 0.3f;
     float3 v = reinterpret_cast<const float3*>(velocity)[idx];
     float mag = sqrtf(v.x * v.x + v.y * v.y + v.z * v.z);
     speed[idx] = mag;
@@ -483,10 +488,8 @@ __global__ void advectKernel(
         float stationaryFactor = 1.0f - (mag / velocityThreshold);
         dissipationFactor = baseDissipationRate + stationaryFactor * (maxDissipationRate - baseDissipationRate);
     }
-    if(solidGrid[idx] != 0){
-        dissipationFactor *= 1.5f;
-        dissipationFactor = fminf(dissipationFactor, 0.95f);
-    }
+    if(solidGrid[idx] != 0) dissipationFactor *= 0.5f;
+    dissipationFactor = fminf(dissipationFactor, 0.5f);
     float keepFraction = 1.0f - dissipationFactor;
     float dissipationAmount = temp * dissipationFactor;
     float x0 = (float) i;
@@ -563,14 +566,13 @@ __global__ void advectKernel(
             float dissipationPerNeighbor = dissipationAmount / neighborCount;
             for(int n=0; n<6; n++){
                 int ni = i + neighbors[n][0];
-                int nj = i + neighbors[n][1];
-                int nk = i + neighbors[n][2];
+                int nj = j + neighbors[n][1];
+                int nk = k + neighbors[n][2];
                 if(ni>=0 && ni<c_GX && nj>=0 && nj<c_GY && nk>=0 && nk<c_GZ){
                     int nidx = idx3D(ni, nj, nk, c_GX, c_GY);
-                    float absorptionFactor = solidGrid==0 ? 1.0f : 0.3f;
+                    float absorptionFactor = solidGrid[nidx] == 0 ? 1.0f : 0.3f;
                     float dissipatedToNeighbor = dissipationPerNeighbor * absorptionFactor;
-                    atomicAdd(&tempSum[nidx], dissipatedToNeighbor);
-                    atomicAdd(&weightSum[nidx], absorptionFactor / neighborCount);
+                    atomicAdd(&tempSumDiss[nidx], dissipatedToNeighbor);
                 }
             }
         }
@@ -581,6 +583,8 @@ __global__ void normalizeForwardAdvected(
     float* __restrict__ tempOut,
     const float* __restrict__ tempSum,
     const float* __restrict__ weightSum,
+    const float* __restrict__ tempSumDiss,
+    const float* __restrict__ speed,
     const float* __restrict__ tempIn,
     const unsigned char* __restrict__ solidGrid
 ){
@@ -589,8 +593,26 @@ __global__ void normalizeForwardAdvected(
     int k = blockIdx.z * blockDim.z + threadIdx.z;
     if (i >= c_GX || j >= c_GY || k >= c_GZ) return;
     int idx = idx3D(i, j, k, c_GX, c_GY);
+    float temp = tempIn[idx];
+    float tempDiff = temp - c_ambientTemperature;
+    float tempFactor = fminf(tempDiff / 50.0f, 1.0f);
+    float baseDissipationRate = 0.02f + tempFactor * 0.08f;
+    float maxDissipationRate = 0.3f + tempFactor * 0.3f;
+    const float velocityThreshold = 0.1f;
+    float dissipationFactor = baseDissipationRate;
+    float mag = speed[idx];
+    if(mag < velocityThreshold){
+        float stationaryFactor = 1.0f - (mag / velocityThreshold);
+        dissipationFactor = baseDissipationRate + stationaryFactor * (maxDissipationRate - baseDissipationRate);
+    }
+    if(solidGrid[idx] != 0) dissipationFactor *= 0.5f;
+    dissipationFactor = fminf(dissipationFactor, 0.5f);
+    float keepFraction = 1.0f - dissipationFactor;
     float w = weightSum[idx];
-    tempOut[idx] = (w > 1e-6f) ? tempSum[idx] / w : c_ambientTemperature;
+    float advT = (w > 1e-6f) ? tempSum[idx] / w : tempIn[idx];
+    advT *= keepFraction;
+    float dissT = tempSumDiss[idx];
+    tempOut[idx] = advT + dissT;
 }
 
 __global__ void convectiveHeatKernel(
@@ -649,8 +671,8 @@ __global__ void convectiveHeatKernel(
             neighbors[n][2]
         );
         float flowAlignment = relativeVel.x * direction.x + relativeVel.y * direction.y + relativeVel.z * direction.z;
-        float convectionCoeff = 0.1f + fminf(relativeSpeed * 0.5f, 2.0f);
-        if(flowAlignment > 0.1f) convectionCoeff *= (1.0f + flowAlignment * 2.0f);
+        float convectionCoeff = 0.1f + fminf(relativeSpeed * 0.2f, 1.0f);
+        if(flowAlignment > 0.1f) convectionCoeff *= (1.0f + flowAlignment);
         float tempGradient = neighborTemp - currentTemp;
         float pullingEffect = 1.0f;
         if(neighborSpeed > 1.0f && neighborTemp < currentTemp){
@@ -672,7 +694,7 @@ __global__ void convectiveHeatKernel(
     }
     if(totalWeight > 0.0f){
         float avgHeatTransfer = totalHeatTransfer / totalWeight;
-        float maxTransferRate = fabs(tempDiff) * 0.3f;
+        float maxTransferRate = fabs(tempDiff) * 0.6f;
         avgHeatTransfer = fminf(fmaxf(avgHeatTransfer, -maxTransferRate), maxTransferRate);
         temperature[idx] = currentTemp + avgHeatTransfer * dt;
     }
@@ -890,9 +912,11 @@ __global__ void velocityUpdateKernel(
         velOut[idx * 3 + 2] = 0.0f;
         return;
     }
-    float vx = velIn[idx * 3 + 0];
-    float vy = velIn[idx * 3 + 1];
-    float vz = velIn[idx * 3 + 2];
+    float3 v = make_float3(
+        velIn[idx * 3 + 0],
+        velIn[idx * 3 + 1],
+        velIn[idx * 3 + 2]
+    );
     float solidProximity = 0.0f;
     int solidCount = 0;
     for(int dx=-1; dx<=1; dx++) {
@@ -913,9 +937,9 @@ __global__ void velocityUpdateKernel(
         }
     }
     float advectionStrength = 0.8f / (1.0f + solidProximity * 0.3f);
-    float x0 = i - vx * dt * advectionStrength / c_cellSizeX;
-    float y0 = j - vy * dt * advectionStrength / c_cellSizeY;
-    float z0 = k - vz * dt * advectionStrength / c_cellSizeZ;
+    float x0 = i - v.x * dt * advectionStrength / c_cellSizeX;
+    float y0 = j - v.y * dt * advectionStrength / c_cellSizeY;
+    float z0 = k - v.z * dt * advectionStrength / c_cellSizeZ;
     x0 = fminf(fmaxf(x0, 0.5f), c_GX - 1.5f);
     y0 = fminf(fmaxf(y0, 0.5f), c_GY - 1.5f);
     z0 = fminf(fmaxf(z0, 0.5f), c_GZ - 1.5f);
@@ -929,26 +953,29 @@ __global__ void velocityUpdateKernel(
     yi = max(0, min(yi, c_GY - 2));
     zi = max(0, min(zi, c_GZ - 2));
 
-    float newVel[3];
+    float newVel[3] = {v.x, v.y, v.z};
     for(int comp = 0; comp < 3; comp++){
-        float c000 = velIn[idx3D(xi, yi, zi, c_GX, c_GY) * 3 + comp];
-        float c001 = velIn[idx3D(xi, yi, zi+1, c_GX, c_GY) * 3 + comp];
-        float c010 = velIn[idx3D(xi, yi+1, zi, c_GX, c_GY) * 3 + comp];
-        float c011 = velIn[idx3D(xi, yi+1, zi+1, c_GX, c_GY) * 3 + comp];
-        float c100 = velIn[idx3D(xi+1, yi, zi, c_GX, c_GY) * 3 + comp];
-        float c101 = velIn[idx3D(xi+1, yi, zi+1, c_GX, c_GY) * 3 + comp];
-        float c110 = velIn[idx3D(xi+1, yi+1, zi, c_GX, c_GY) * 3 + comp];
-        float c111 = velIn[idx3D(xi+1, yi+1, zi+1, c_GX, c_GY) * 3 + comp];
+        float sumW = 0.0f;
+        float acc = 0.0f;
+        for(int dx=0; dx<=1; dx++){
+            for(int dy=0; dy<=1; dy++){
+                for(int dz=0; dz<=1; dz++){
+                    int ni = xi + dx;
+                    int nj = yi + dy;
+                    int nk = zi + dz;
+                    if(ni < 0 || ni >= c_GX || nj < 0 || nj >= c_GY || nk < 0 || nk >= c_GZ) continue;
+                    int nidx = idx3D(ni, nj, nk, c_GX, c_GY);
+                    float w = (dx ? fx : (1.0f - fx)) * (dy ? fy : (1.0f - fy)) * (dz ? fz : (1.0f - fz));
+                    if(solidGrid[nidx] == 0){
+                        float val = velIn[nidx * 3 + comp];
+                        acc += val * w;
+                        sumW += w;
+                    }
+                }
+            }
+        }
         
-        float c00 = c000 * (1.0f - fx) + c100 * fx;
-        float c01 = c001 * (1.0f - fx) + c101 * fx;
-        float c10 = c010 * (1.0f - fx) + c110 * fx;
-        float c11 = c011 * (1.0f - fx) + c111 * fx;
-        
-        float c0 = c00 * (1.0f - fy) + c10 * fy;
-        float c1 = c01 * (1.0f - fy) + c11 * fy;
-        
-        newVel[comp] = c0 * (1.0f - fz) + c1 * fz;
+        newVel[comp] = sumW > 1e-6f ? acc / sumW : newVel[comp];
     }
     float worldX = (i + 0.5f) * c_cellSizeX + c_worldMinX;
     float worldY = (j + 0.5f) * c_cellSizeY + c_worldMinY;
@@ -975,7 +1002,7 @@ __global__ void velocityUpdateKernel(
             toCell.z * invDistance
         );
         float alignment = fanDirection.x * toCellNormalized.x + fanDirection.y * toCellNormalized.y + fanDirection.z * toCellNormalized.z;
-        float fanRadiusSq = 1.0f;
+        float fanRadiusSq = 0.4f;
         float forceMagnitude = __fmaf_rn(5.0f * alignment, __fdividef(1.0f, 1.0f + distanceSq / fanRadiusSq), 0.0f);
         if(alignment > 0.1f){
             fanAccum.x += fanDirection.x * forceMagnitude;
@@ -1120,9 +1147,11 @@ extern "C" void runFluidSimulation(
     float* d_tempTemperature = simMem.getTempTemperature();
     float* d_tempSum = simMem.getTempSum();
     float* d_weightSum = simMem.getWeightSum();
+    float* d_tempSumDiss = simMem.getTempSumDiss();
     unsigned char* d_fanCanAccess = simMem.getFanAccess();
     CUDA_CHECK(cudaMemset(d_tempSum, 0, numCells * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_weightSum, 0, numCells * sizeof(float)));
+    CUDA_CHECK(cudaMemset(d_tempSumDiss, 0, numCells * sizeof(float)));
     if(shouldResetFanAccess){
         CUDA_CHECK(cudaMemset(d_fanCanAccess, 1, 8 * numCells * sizeof(unsigned char)));
         updateFanAccessKernel<<<grid, block>>>(
@@ -1140,11 +1169,11 @@ extern "C" void runFluidSimulation(
         d_velocityField, d_pressureField, d_temperature, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
     );
     advectKernel<<<grid, block>>>(
-        d_temperature, d_velocityField, d_speedField, d_tempSum, d_weightSum, d_solidGrid, dt
+        d_temperature, d_velocityField, d_speedField, d_tempSum, d_weightSum, d_tempSumDiss, d_solidGrid, dt
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     normalizeForwardAdvected<<<grid, block>>>(
-        d_tempTemperature, d_tempSum, d_weightSum, d_temperature, d_solidGrid
+        d_tempTemperature, d_tempSum, d_weightSum, d_tempSumDiss, d_speedField, d_temperature, d_solidGrid
     );
     CUDA_CHECK(cudaDeviceSynchronize());
     convectiveHeatKernel<<<grid, block>>>(

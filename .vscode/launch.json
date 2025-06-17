@@ -2,6 +2,32 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Windows Debug (CMake)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}\\bin\\gustgrid.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "preLaunchTask": "CMake Configure + Build",
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "Windows Release (CMake)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}\\bin\\gustgrid.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "preLaunchTask": "CMake Configure + Build Release",
+            "console": "integratedTerminal"
+        },
+        {
             "name": "Linux Debug (CMake)",
             "type": "cppdbg",
             "request": "launch",

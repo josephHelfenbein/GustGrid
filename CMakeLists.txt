@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.18)
+set(CMAKE_CUDA_ARCHITECTURES "60;70;75;80;86")
 project(gustgrid LANGUAGES C CXX CUDA)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -17,6 +18,9 @@ message(STATUS "CUDA version: ${CUDAToolkit_VERSION}")
 message(STATUS "CUDA include dirs: ${CUDAToolkit_INCLUDE_DIRS}")
 message(STATUS "CUDA library dirs: ${CUDAToolkit_LIBRARY_DIR}")
 
+find_package(Freetype REQUIRED)
+find_package(glfw3 REQUIRED)
+
 find_package(OpenMP)
 if (OpenMP_CXX_FOUND)
     message(STATUS "OpenMP support found: ${OpenMP_CXX_FLAGS}")
@@ -33,20 +37,30 @@ set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
 set(CMAKE_CXX_FLAGS_RELEASE  "-O3 -march=native -funroll-loops -ftree-vectorize -fprefetch-loop-arrays -flto -ffast-math -DNDEBUG")
 set(CMAKE_CUDA_FLAGS_RELEASE "-O3 --use_fast_math -DNDEBUG")
 
-set(CMAKE_C_FLAGS_DEBUG   "${CMAKE_C_FLAGS_DEBUG} ${CMAKE_CXX_FLAGS_DEBUG}")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}")
-set(CMAKE_CUDA_FLAGS_DEBUG "${CMAKE_CUDA_FLAGS_DEBUG}")
+set(SOURCES
+  src/main.cpp
+  src/renderer.cpp
+  src/simulator.cpp
+  src/glad.c
+)
+set(CUDA_SOURCES
+  src/fluidSimulator.cu
+)
 
-set(CMAKE_C_FLAGS_RELEASE   "${CMAKE_C_FLAGS_RELEASE} ${CMAKE_CXX_FLAGS_RELEASE}")
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
-set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE}")
-
-set(CMAKE_CUDA_ARCHITECTURES "60;70;75;80;86")
-
-include_directories(${CMAKE_SOURCE_DIR}/include)
-include_directories(${CMAKE_SOURCE_DIR}/include/freetype/include)
-
-include_directories(${CUDAToolkit_INCLUDE_DIRS})
+add_executable(${PROJECT_NAME}
+  ${SOURCES}
+  ${CUDA_SOURCES}
+)
+target_include_directories(${PROJECT_NAME} PRIVATE
+  ${CMAKE_SOURCE_DIR}/include
+  ${CMAKE_SOURCE_DIR}/include/freetype/include
+  ${CUDAToolkit_INCLUDE_DIRS}
+  ${FREETYPE_INCLUDE_DIRS}
+)
+set_target_properties(${PROJECT_NAME} PROPERTIES
+  CUDA_SEPARABLE_COMPILATION ON
+  RUNTIME_OUTPUT_DIRECTORY      ${CMAKE_SOURCE_DIR}/bin
+)
 
 if(NOT CUDAToolkit_INCLUDE_DIRS)
     message(WARNING "CUDAToolkit_INCLUDE_DIRS is empty, trying common paths")
@@ -68,29 +82,9 @@ endif()
 
 link_directories(${CMAKE_SOURCE_DIR}/lib)
 
-set(SOURCES
-    src/main.cpp
-    src/renderer.cpp
-    src/simulator.cpp
-    src/glad.c
-)
-
-set(CUDA_SOURCES
-    src/fluidSimulator.cu
-)
-
-add_executable(${PROJECT_NAME} ${SOURCES} ${CUDA_SOURCES})
-
-set_target_properties(${PROJECT_NAME} PROPERTIES
-    CUDA_SEPARABLE_COMPILATION ON
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin
-)
-
-target_link_libraries(${PROJECT_NAME}
+target_link_libraries(${PROJECT_NAME} PRIVATE
     freetype
     glfw
-    dl
-    m
     CUDA::cudart
     CUDA::cuda_driver
     CUDA::curand
@@ -99,8 +93,11 @@ target_link_libraries(${PROJECT_NAME}
     CUDA::cusparse
     $<$<BOOL:${OpenMP_CXX_FOUND}>:OpenMP::OpenMP_CXX>
 )
-
-if(NOT TARGET CUDA::cudart)
-    message(WARNING "CUDA::cudart target not found, trying alternative linking")
-    target_link_libraries(${PROJECT_NAME} ${CUDA_LIBRARIES})
+if(UNIX)
+  target_link_libraries(${PROJECT_NAME} PRIVATE
+    dl
+    m
+  )
 endif()
+
+execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init --recursive)

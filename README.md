@@ -152,6 +152,37 @@ To compile the project on Linux, you'll need:
     - `cuda-tools` (for CUDA)
 4. Run the `Linux Release (CMake)` configuration in VSCode, or `Linux Debug (CMake)` for debugging without optimization flags.
 
+
+
+### Windows
+
+To compile the project on Windows, you'll need:
+1. **MSYS2** - Install MSYS2 at https://www.msys2.org/
+2. In the MSYS2 MINGW64 terminal, run
+```bash
+pacman -Syu
+# close & reopen
+pacman -Su
+```
+3. Install the needed packages with
+```bash
+pacman -S --needed \
+  mingw-w64-x86_64-toolchain \
+  mingw-w64-x86_64-cmake \
+  mingw-w64-x86_64-ninja \
+  mingw-w64-x86_64-glfw \
+  mingw-w64-x86_64-freetype \
+  mingw-w64-x86_64-glm \
+  mingw-w64-x86_64-stb
+```
+4. **CUDA** - Install CUDA at https://developer.nvidia.com/cuda-downloads and run
+```bash
+export CUDA_PATH="/c/Program Files/NVIDIA GPU Computing Toolkit/CUDA/(YOUR CUDA VERSION)"
+export PATH="$CUDA_PATH/bin:$PATH"
+```
+5. Run the `Windows Release (CMake)` configuration in VSCode, or `Windows Debug (CMake)` for debugging without optimization flags.
+
+
 <!-- LICENSE -->
 ## License
 

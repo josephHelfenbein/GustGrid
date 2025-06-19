@@ -105,6 +105,113 @@
             "dependsOrder": "sequence",
             "group": "build",
             "problemMatcher": []
+        },
+        {
+            "label": "CMake Configure Release (MSYS2)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-B", "build",
+                "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DCMAKE_C_COMPILER=gcc",
+                "-DCMAKE_CXX_COMPILER=g++",
+                "-DCMAKE_CUDA_HOST_COMPILER=g++",
+                "-DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc.exe"
+            ],
+            "options": {
+              "cwd": "${workspaceFolder}",
+              "shell": {
+                "executable": "C:/msys64/usr/bin/bash.exe",
+                "args": ["-lc"]
+              }
+            },
+            "group": "build"
+        },
+        {
+            "type": "shell",
+            "label": "CMake Build Release (MSYS2)",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "build",
+            ],
+            "options": {
+              "cwd": "${workspaceFolder}",
+              "shell": {
+                "executable": "C:/msys64/usr/bin/bash.exe",
+                "args": ["-lc"]
+              }
+            },
+            "group": "build",
+            "dependsOn": "CMake Configure Release (MSYS2)",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "type": "shell",
+            "label": "CMake Build (MSYS2)",
+            "command": "cmake",
+            "args": [
+                "--build",
+                "build/debug",
+            ],
+            "options": {
+              "cwd": "${workspaceFolder}",
+              "shell": {
+                "executable": "C:/msys64/usr/bin/bash.exe",
+                "args": ["-lc"]
+              }
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "dependsOn": "CMake Configure Debug (MSYS2)",
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "CMake Configure + Build Release (MSYS2)",
+            "command": "cmake",
+            "dependsOn": [
+                "CMake Configure Release (MSYS2)",
+                "CMake Build Release (MSYS2)"
+            ],
+            "dependsOrder": "sequence",
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake Configure Debug (MSYS2)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-B", "build/debug",
+                "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Debug",
+                "-DCMAKE_C_COMPILER=gcc",
+                "-DCMAKE_CXX_COMPILER=g++",
+                "-DCMAKE_CUDA_HOST_COMPILER=g++",
+                "-DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc.exe"
+            ],
+            "options": {
+              "cwd": "${workspaceFolder}",
+              "shell": {
+                "executable": "C:/msys64/usr/bin/bash.exe",
+                "args": ["-lc"]
+              }
+            },
+            "group": "build"
+        },
+        {
+            "label": "CMake Configure + Build Debug (MSYS2)",
+            "command": "cmake",
+            "dependsOn": [
+                "CMake Configure Debug (MSYS2)",
+                "CMake Build (MSYS2)"
+            ],
+            "dependsOrder": "sequence",
+            "group": {"group": "build", "isDefault": true},
+            "problemMatcher": []
         }
     ]
 }

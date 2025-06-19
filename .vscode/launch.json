@@ -11,7 +11,7 @@
             "cwd": "${workspaceFolder}",
             "environment": [],
             "externalConsole": false,
-            "preLaunchTask": "CMake Configure + Build",
+            "preLaunchTask": "CMake Configure + Build Debug (MSYS2)",
             "console": "integratedTerminal"
         },
         {
@@ -24,7 +24,7 @@
             "cwd": "${workspaceFolder}",
             "environment": [],
             "externalConsole": false,
-            "preLaunchTask": "CMake Configure + Build Release",
+            "preLaunchTask": "CMake Configure + Build Release (MSYS2)",
             "console": "integratedTerminal"
         },
         {

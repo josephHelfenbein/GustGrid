@@ -121,6 +121,9 @@
             ],
             "options": {
               "cwd": "${workspaceFolder}",
+              "env": {
+                "MSYSTEM": "MINGW64"
+              },
               "shell": {
                 "executable": "C:/msys64/usr/bin/bash.exe",
                 "args": ["-lc"]
@@ -138,6 +141,9 @@
             ],
             "options": {
               "cwd": "${workspaceFolder}",
+              "env": {
+                "MSYSTEM": "MINGW64"
+              },
               "shell": {
                 "executable": "C:/msys64/usr/bin/bash.exe",
                 "args": ["-lc"]
@@ -157,6 +163,9 @@
             ],
             "options": {
               "cwd": "${workspaceFolder}",
+              "env": {
+                "MSYSTEM": "MINGW64"
+              },
               "shell": {
                 "executable": "C:/msys64/usr/bin/bash.exe",
                 "args": ["-lc"]
@@ -195,6 +204,9 @@
             ],
             "options": {
               "cwd": "${workspaceFolder}",
+              "env": {
+                "MSYSTEM": "MINGW64"
+              },
               "shell": {
                 "executable": "C:/msys64/usr/bin/bash.exe",
                 "args": ["-lc"]

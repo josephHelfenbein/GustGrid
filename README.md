@@ -171,6 +171,7 @@ vcpkg install freetype glfw3
 `PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\(YOUR CUDA VERSION)\bin`
 `PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\(YOUR CUDA VERSION)\libnvvp`
 5. Go to the project directory in `x64 Native Tools Command Prompt for VS 2022` and run `code .`, then run the `Windows Release (CMake)` configuration in VSCode, or `Windows Debug (CMake)` for debugging without optimization flags.
+If you can't see any of the visuals, Windows may have overwritten the end of line sequences in the shaders to CRLF. You will need to update all of the shaders in src/shaders to have end of line sequence LF.
 
 
 <!-- LICENSE -->

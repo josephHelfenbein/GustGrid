@@ -111,6 +111,7 @@
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "-B", "build",
                 "-G", "Ninja",
                 "-DCMAKE_BUILD_TYPE=Release",
@@ -136,6 +137,7 @@
             "label": "CMake Build Release (MSYS2)",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "--build",
                 "build",
             ],
@@ -158,6 +160,7 @@
             "label": "CMake Build (MSYS2)",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "--build",
                 "build/debug",
             ],
@@ -194,6 +197,7 @@
             "type": "shell",
             "command": "cmake",
             "args": [
+                "-S", ".",
                 "-B", "build/debug",
                 "-G", "Ninja",
                 "-DCMAKE_BUILD_TYPE=Debug",

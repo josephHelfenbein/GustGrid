@@ -111,110 +111,61 @@
             "type": "shell",
             "command": "cmake",
             "args": [
-                "-S", ".",
-                "-B", "build",
                 "-G", "Ninja",
+                "-S", "${workspaceFolder}",
+                "-B", "${workspaceFolder}/build",
                 "-DCMAKE_BUILD_TYPE=Release",
                 "-DCMAKE_C_COMPILER=gcc",
                 "-DCMAKE_CXX_COMPILER=g++",
-                "-DCMAKE_CUDA_HOST_COMPILER=g++",
-                "-DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc.exe"
+                "-DCMAKE_CUDA_COMPILER=${env:CUDA_PATH}/bin/nvcc.exe",
+                "-DCMAKE_CUDA_HOST_COMPILER=g++"
             ],
             "options": {
-              "cwd": "${workspaceFolder}",
-              "env": {
+                "cwd": "${workspaceFolder}",
+                "env": {
                 "MSYSTEM": "MINGW64"
-              },
-              "shell": {
+                },
+                "shell": {
                 "executable": "C:/msys64/usr/bin/bash.exe",
-                "args": ["-c"]
-              }
+                "args": ["-lc"]
+                }
             },
             "group": "build"
-        },
-        {
-            "type": "shell",
-            "label": "CMake Build Release (MSYS2)",
-            "command": "cmake",
-            "args": [
-                "-S", ".",
-                "--build",
-                "build",
-            ],
-            "options": {
-              "cwd": "${workspaceFolder}",
-              "env": {
-                "MSYSTEM": "MINGW64"
-              },
-              "shell": {
-                "executable": "C:/msys64/usr/bin/bash.exe",
-                "args": ["-c"]
-              }
-            },
-            "group": "build",
-            "dependsOn": "CMake Configure Release (MSYS2)",
-            "problemMatcher": ["$gcc"]
-        },
-        {
-            "type": "shell",
-            "label": "CMake Build (MSYS2)",
-            "command": "cmake",
-            "args": [
-                "-S", ".",
-                "--build",
-                "build/debug",
-            ],
-            "options": {
-              "cwd": "${workspaceFolder}",
-              "env": {
-                "MSYSTEM": "MINGW64"
-              },
-              "shell": {
-                "executable": "C:/msys64/usr/bin/bash.exe",
-                "args": ["-c"]
-              }
-            },
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            },
-            "dependsOn": "CMake Configure Debug (MSYS2)",
-            "problemMatcher": ["$gcc"]
         },
         {
             "label": "CMake Configure + Build Release (MSYS2)",
             "command": "cmake",
             "dependsOn": [
                 "CMake Configure Release (MSYS2)",
-                "CMake Build Release (MSYS2)"
+                "CMake Build Release"
             ],
             "dependsOrder": "sequence",
             "group": "build",
             "problemMatcher": []
         },
         {
-            "label": "CMake Configure Debug (MSYS2)",
+            "label": "CMake Configure Release (MSYS2)",
             "type": "shell",
             "command": "cmake",
             "args": [
-                "-S", ".",
-                "-B", "build/debug",
                 "-G", "Ninja",
+                "-S", "${workspaceFolder}",
+                "-B", "${workspaceFolder}/build/debug",
                 "-DCMAKE_BUILD_TYPE=Debug",
                 "-DCMAKE_C_COMPILER=gcc",
                 "-DCMAKE_CXX_COMPILER=g++",
-                "-DCMAKE_CUDA_HOST_COMPILER=g++",
-                "-DCMAKE_CUDA_COMPILER=$CUDA_PATH/bin/nvcc.exe"
+                "-DCMAKE_CUDA_COMPILER=${env:CUDA_PATH}/bin/nvcc.exe",
+                "-DCMAKE_CUDA_HOST_COMPILER=g++"
             ],
             "options": {
-              "cwd": "${workspaceFolder}",
-              "env": {
+                "cwd": "${workspaceFolder}",
+                "env": {
                 "MSYSTEM": "MINGW64"
-              },
-              "shell": {
+                },
+                "shell": {
                 "executable": "C:/msys64/usr/bin/bash.exe",
-                "args": ["-c"]
-              }
+                "args": ["-lc"]
+                }
             },
             "group": "build"
         },
@@ -223,7 +174,7 @@
             "command": "cmake",
             "dependsOn": [
                 "CMake Configure Debug (MSYS2)",
-                "CMake Build (MSYS2)"
+                "CMake Build"
             ],
             "dependsOrder": "sequence",
             "group": {"group": "build", "isDefault": true},

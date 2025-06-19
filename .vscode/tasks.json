@@ -107,36 +107,27 @@
             "problemMatcher": []
         },
         {
-            "label": "CMake Configure Release (MSYS2)",
+            "label": "CMake Configure Release (Windows)",
             "type": "shell",
             "command": "cmake",
             "args": [
                 "-G", "Ninja",
-                "-S", "${workspaceFolder}",
-                "-B", "${workspaceFolder}/build",
+                "-S", ".",
+                "-B", "build", 
                 "-DCMAKE_BUILD_TYPE=Release",
-                "-DCMAKE_C_COMPILER=gcc",
-                "-DCMAKE_CXX_COMPILER=g++",
-                "-DCMAKE_CUDA_COMPILER=${env:CUDA_PATH}/bin/nvcc.exe",
-                "-DCMAKE_CUDA_HOST_COMPILER=g++"
+                "-DCMAKE_TOOLCHAIN_FILE=${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "-DVCPKG_TARGET_TRIPLET=x64-windows",
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
-                "env": {
-                "MSYSTEM": "MINGW64"
-                },
-                "shell": {
-                "executable": "C:/msys64/usr/bin/bash.exe",
-                "args": ["-lc"]
-                }
             },
             "group": "build"
         },
         {
-            "label": "CMake Configure + Build Release (MSYS2)",
+            "label": "CMake Configure + Build Release (Windows)",
             "command": "cmake",
             "dependsOn": [
-                "CMake Configure Release (MSYS2)",
+                "CMake Configure Release (Windows)",
                 "CMake Build Release"
             ],
             "dependsOrder": "sequence",
@@ -144,36 +135,27 @@
             "problemMatcher": []
         },
         {
-            "label": "CMake Configure Release (MSYS2)",
+            "label": "CMake Configure Debug (Windows)",
             "type": "shell",
             "command": "cmake",
             "args": [
                 "-G", "Ninja",
-                "-S", "${workspaceFolder}",
-                "-B", "${workspaceFolder}/build/debug",
+                "-S", ".",
+                "-B", "build", 
                 "-DCMAKE_BUILD_TYPE=Debug",
-                "-DCMAKE_C_COMPILER=gcc",
-                "-DCMAKE_CXX_COMPILER=g++",
-                "-DCMAKE_CUDA_COMPILER=${env:CUDA_PATH}/bin/nvcc.exe",
-                "-DCMAKE_CUDA_HOST_COMPILER=g++"
+                "-DCMAKE_TOOLCHAIN_FILE=${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+                "-DVCPKG_TARGET_TRIPLET=x64-windows",
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
-                "env": {
-                "MSYSTEM": "MINGW64"
-                },
-                "shell": {
-                "executable": "C:/msys64/usr/bin/bash.exe",
-                "args": ["-lc"]
-                }
             },
             "group": "build"
         },
         {
-            "label": "CMake Configure + Build Debug (MSYS2)",
+            "label": "CMake Configure + Build Debug (Windows)",
             "command": "cmake",
             "dependsOn": [
-                "CMake Configure Debug (MSYS2)",
+                "CMake Configure Debug (Windows)",
                 "CMake Build"
             ],
             "dependsOrder": "sequence",

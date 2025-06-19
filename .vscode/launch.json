@@ -2,46 +2,28 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Windows Release (CMake)",
-            "type": "cppdbg",
+            "name": "Windows Debug (CMake)",
+            "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/gustgrid.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
             "externalConsole": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
             "stopAtEntry": false,
             "environment": [],
-            "preLaunchTask": "CMake Configure + Build Debug (MSYS2)",
-            "setupCommands": [
-                {
-                "description": "Enable pretty-printing for gdb",
-                "text": "-enable-pretty-printing",
-                "ignoreFailures": true
-                }
-            ]
+            "preLaunchTask": "CMake Configure + Build Debug (Windows)",
         },
         {
             "name": "Windows Release (CMake)",
-            "type": "cppdbg",
+            "type": "cppvsdbg",
             "request": "launch",
             "program": "${workspaceFolder}/bin/gustgrid.exe",
             "args": [],
             "cwd": "${workspaceFolder}",
             "externalConsole": false,
-            "MIMode": "gdb",
-            "miDebuggerPath": "C:/msys64/mingw64/bin/gdb.exe",
             "stopAtEntry": false,
             "environment": [],
-            "preLaunchTask": "CMake Configure + Build Release (MSYS2)",
-            "setupCommands": [
-                {
-                "description": "Enable pretty-printing for gdb",
-                "text": "-enable-pretty-printing",
-                "ignoreFailures": true
-                }
-            ]
+            "preLaunchTask": "CMake Configure + Build Release (Windows)",
         },
         {
             "name": "Linux Debug (CMake)",

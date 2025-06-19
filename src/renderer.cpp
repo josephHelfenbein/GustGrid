@@ -14,6 +14,7 @@
 #include <thread>
 #include <functional>
 #include <omp.h>
+#include <array>
 
 #define uiVertexPath "./src/shaders/ui.vert"
 #define uiFragmentPath "./src/shaders/ui.frag"
@@ -355,7 +356,7 @@ void loadModelData(const char* file, ModelData &data){
     size_t vertexCount = mesh.Vertices.size();
     data.vertices.resize(vertexCount * 8);
     #pragma omp parallel for
-    for(size_t v=0; v<vertexCount; v++){
+    for(int v=0; v<vertexCount; v++){
         const auto &vertex = mesh.Vertices[v];
         size_t i = v * 8;
         data.vertices[i + 0] = vertex.Position.X;

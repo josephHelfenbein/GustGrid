@@ -18,8 +18,10 @@ message(STATUS "CUDA version: ${CUDAToolkit_VERSION}")
 message(STATUS "CUDA include dirs: ${CUDAToolkit_INCLUDE_DIRS}")
 message(STATUS "CUDA library dirs: ${CUDAToolkit_LIBRARY_DIR}")
 
-find_package(freetype CONFIG REQUIRED)
-find_package(glfw3 CONFIG REQUIRED)
+if(!UNIX)
+  find_package(freetype CONFIG REQUIRED)
+  find_package(glfw3 CONFIG REQUIRED)
+endif()
 
 find_package(OpenMP)
 if (OpenMP_CXX_FOUND)

@@ -18,7 +18,7 @@ message(STATUS "CUDA version: ${CUDAToolkit_VERSION}")
 message(STATUS "CUDA include dirs: ${CUDAToolkit_INCLUDE_DIRS}")
 message(STATUS "CUDA library dirs: ${CUDAToolkit_LIBRARY_DIR}")
 
-if(!UNIX)
+if(NOT UNIX)
   find_package(freetype CONFIG REQUIRED)
   find_package(glfw3 CONFIG REQUIRED)
 endif()

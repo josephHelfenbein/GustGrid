@@ -318,20 +318,28 @@ void processInput(GLFWwindow* window){
     else if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_RELEASE) firstMouse = true;   
 }
 char* getShaders(const char* file){
-    FILE* shaderFile = fopen(file, "r");
+    FILE* shaderFile = fopen(file, "rb");
     if(!shaderFile){
         std::cerr<<"Error opening shader file at "<<file<<"\n";
         return nullptr;
     }
-    int fileSize = 0;
     fseek(shaderFile, 0, SEEK_END);
-    fileSize = ftell(shaderFile);
+    int fileSize = ftell(shaderFile);
     rewind(shaderFile);
-    char* shader = (char*) malloc(sizeof(char) * (fileSize + 1));
-    fread(shader, sizeof(char), fileSize, shaderFile);
-    shader[fileSize] = '\0';
+    char* buffer = (char*) malloc(sizeof(char) * (fileSize + 1));
+    fread(buffer, sizeof(char), fileSize, shaderFile);
+    buffer[fileSize] = '\0';
     fclose(shaderFile);
-    return shader;
+    int writePos = 0;
+    for(int readPos = 0; readPos < fileSize; readPos++){
+        if(buffer[readPos] == '\r'){
+            if(readPos < fileSize - 1 && buffer[readPos + 1] == '\n') continue;
+            else buffer[writePos++] = '\n';
+        } else buffer[writePos++] = buffer[readPos];
+    }
+    buffer[writePos] = '\0';
+    if(writePos < fileSize) buffer = (char*) realloc(buffer, writePos + 1);
+    return buffer;
 }
 unsigned int createComputeShader(const char* shaderSource){
     unsigned int shader = glCreateShader(GL_COMPUTE_SHADER);

@@ -39,7 +39,7 @@ set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
 if(UNIX)
   set(CMAKE_CXX_FLAGS_RELEASE  "-O3 -march=native -funroll-loops -ftree-vectorize -fprefetch-loop-arrays -flto -ffast-math -DNDEBUG")
 else()
-  set(CMAKE_CXX_FLAGS_RELEASE  "/O2 /Oi /Ot/ Gy /GL /fp:fast /DNDEBUG")
+  set(CMAKE_CXX_FLAGS_RELEASE  "/O2 /Oi /Ot /Gy /GL /fp:fast /DNDEBUG")
 endif()
 set(CMAKE_CUDA_FLAGS_RELEASE "-O3 --use_fast_math -DNDEBUG")
 

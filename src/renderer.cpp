@@ -23,6 +23,7 @@
 #define uiVertexPath "./src/shaders/ui.vert"
 #define uiFragmentPath "./src/shaders/ui.frag"
 #define textFragmentPath "./src/shaders/text.frag"
+#define tempReaderShaderPath "./src/shaders/tempreader.glsl"
 #define checkboxCheckedSource "./src/textures/ui/checkbox/checked.png"
 #define checkboxUncheckedSource "./src/textures/ui/checkbox/unchecked.png"
 #define sliderKnobSource "./src/textures/ui/slider/knob.png"
@@ -331,6 +332,28 @@ char* getShaders(const char* file){
     shader[fileSize] = '\0';
     fclose(shaderFile);
     return shader;
+}
+unsigned int createComputeShader(const char* shaderSource){
+    unsigned int shader = glCreateShader(GL_COMPUTE_SHADER);
+    glShaderSource(shader, 1, &shaderSource, NULL);
+    glCompileShader(shader);
+    int success;
+    char infoLog[512];
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if(!success){
+        glGetShaderInfoLog(shader, 512, nullptr, infoLog);
+        std::cerr<<"A shader compilation failed.\n"<<infoLog<<std::endl;
+    }
+    unsigned int shaderProgram = glCreateProgram();
+    glAttachShader(shaderProgram, shader);
+    glLinkProgram(shaderProgram);
+    glGetProgramiv(shaderProgram, GL_LINK_STATUS, &success);
+    if(!success){
+        glGetProgramInfoLog(shaderProgram, 512, nullptr, infoLog);
+        std::cerr<<"Linking shader program failed.\n"<<infoLog<<std::endl;
+    }
+    glDeleteShader(shader);
+    return shaderProgram;
 }
 unsigned int createShader(const char* vertSource, const char* fragSource){
     unsigned int vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -650,7 +673,7 @@ int startRenderer(){
     }
     glfwWindowHint(GLFW_SAMPLES, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
     GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "GustGrid", nullptr, nullptr);
@@ -804,8 +827,16 @@ int startRenderer(){
     char* uiVertexShaderSource = getShaders(uiVertexPath);
     char* uiFragmentShaderSource = getShaders(uiFragmentPath);
     char* textFragmentShaderSource = getShaders(textFragmentPath);
+    char* tempReaderShaderSource = getShaders(tempReaderShaderPath);
     unsigned int textProgram = createShader(uiVertexShaderSource, textFragmentShaderSource);
     unsigned int uiProgram = createShader(uiVertexShaderSource, uiFragmentShaderSource);
+    unsigned int tempReaderProgram = createComputeShader(tempReaderShaderSource);
+    unsigned int tempReaderSSBO;
+    glGenBuffers(1, &tempReaderSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, tempReaderSSBO);
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(float) * 2, nullptr, GL_DYNAMIC_READ);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, tempReaderSSBO);
+    glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 
     unsigned int checkboxCheckedTexture = loadTexture(checkboxCheckedSource);
     unsigned int checkboxUncheckedTexture = loadTexture(checkboxUncheckedSource);
@@ -898,6 +929,9 @@ int startRenderer(){
 
     float dt = 1.0f / 60.0f; // 60 FPS limit
     float simDt = 1.0f / 60.0f; // 60 FPS simulation step
+    int iterationStep = 0;
+    float cpuTemp = 0.0f;
+    float gpuTemp = 0.0f;
     setupSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, &d_solidGrid, &d_fanPositions, &d_fanDirections, &d_heatSources, numFans);
     initializeConstantsExtern(gridSizeX, gridSizeY, gridSizeZ);
     while(!glfwWindowShouldClose(window)){
@@ -1023,12 +1057,10 @@ int startRenderer(){
             drawText(textProgram, textVAO, textVBO, "Front Fan Enabled", glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 190.0f), 0.3f, glm::vec3(0.0f));
             drawCheckbox(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 75.0f, SCR_HEIGHT - checkboxYPositions[3]), glm::vec2(20.0f), frontFanEnabled, checkboxCheckedTexture, checkboxUncheckedTexture);
             drawText(textProgram, textVAO, textVBO, frontFanEnabled ? "ON" : "OFF", glm::vec2(SCR_WIDTH - 50.0f, SCR_HEIGHT - 190.0f), 0.3f, glm::vec3(0.0f));
-            char numberOfFans = '0';
+            int numberOfFans = 0;
             for(int i=0; i<3; i++) if(backFanLocations[i]<=0.0f) numberOfFans++;
-            const char* backFanTextPrefix = "Back Fans: ";
             char backFanText[13];
-            strcpy(backFanText, backFanTextPrefix);
-            backFanText[11] = numberOfFans;
+            snprintf(backFanText, sizeof(backFanText), "Back Fans: %d", numberOfFans);
             drawText(textProgram, textVAO, textVBO, backFanText, glm::vec2(SCR_WIDTH - 200.0f, SCR_HEIGHT - 220.0f), 0.3f, glm::vec3(0.0f));
             drawArrowInput(uiProgram, spriteVAO, spriteVBO, glm::vec2(SCR_WIDTH - 100.0f, SCR_HEIGHT - 220.0f), glm::vec2(20.0f), arrowUpTexture, arrowDownTexture);
             int lastSliderY = 250;
@@ -1062,20 +1094,35 @@ int startRenderer(){
         drawText(textProgram, textVAO, textVBO, "22°C", glm::vec2(55.0f, SCR_HEIGHT - 420.0f), 0.3f, glm::vec3(1.0f));
         drawText(textProgram, textVAO, textVBO, "61°C", glm::vec2(55.0f, SCR_HEIGHT - 270.0f), 0.3f, glm::vec3(1.0f));
         drawText(textProgram, textVAO, textVBO, "100°C", glm::vec2(55.0f, SCR_HEIGHT - 130.0f), 0.3f, glm::vec3(1.0f));
-        // const char* cpuTempPrefix = "CPU Temperature: ";
-        // char cpuText[25];
-        // //  (-1.45f+2.0f)/(4.0f/gridSizeX)-0.5f, (2.45f+4.5f)/(9.0f/gridSizeY)-0.5f, (1.45f+4.0f)/(8.0f/gridSizeZ)-0.5f)
-        // float cpuTemp = readFromTexture3D(temperature3DTexture, 8, 197, 87);
-        // snprintf(cpuText, sizeof(cpuText), "CPU Temperature: %0.2f°C", cpuTemp);
-        // drawText(textProgram, textVAO, textVBO, cpuText, glm::vec2(SCR_WIDTH - 200.0f, 55.0f), 0.3f, glm::vec3(1.0f));
 
-        // if(gpuEnabled){
-        //     char gpuText[25];
-        //     //  (0.25f+2.0f)/(4.0f/gridSizeX)-0.5f, (0.0f+4.5f)/(9.0f/gridSizeY)-0.5f, (3.5f+4.0f)/(8.0f/gridSizeZ)-0.5f)
-        //     float gpuTemp = readFromTexture3D(temperature3DTexture, 35, 154, 119);
-        //     snprintf(gpuText, sizeof(gpuText), "GPU Temperature: %0.2f°C", gpuTemp);
-        //     drawText(textProgram, textVAO, textVBO, gpuText, glm::vec2(SCR_WIDTH - 200.0f, 25.0f), 0.3f, glm::vec3(1.0f));
-        // }
+        if(iterationStep++ % 15 == 0){
+            glUseProgram(tempReaderProgram);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_3D, temperature3DTexture);
+            glUniform1i(glGetUniformLocation(tempReaderProgram, "temperatureTex"), 0);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, tempReaderSSBO);
+            if(gpuEnabled) glDispatchCompute(2, 1, 1);
+            else glDispatchCompute(1, 1, 1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, tempReaderSSBO);
+            float* data = (float*) glMapBuffer(GL_SHADER_STORAGE_BUFFER, GL_READ_ONLY);
+            if(data){
+                cpuTemp = data[0];
+                if(gpuEnabled) gpuTemp = data[1];
+                glUnmapBuffer(GL_SHADER_STORAGE_BUFFER);
+            }
+            glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
+            iterationStep = 1;
+        }
+        
+        char cpuText[32];
+        snprintf(cpuText, sizeof(cpuText), "CPU Temperature: %0.2f°C", cpuTemp);
+        drawText(textProgram, textVAO, textVBO, cpuText, glm::vec2(SCR_WIDTH - 200.0f, 55.0f), 0.3f, glm::vec3(1.0f));
+        if(gpuEnabled){
+            char gpuText[32];
+            snprintf(gpuText, sizeof(gpuText), "GPU Temperature: %0.2f°C", gpuTemp);
+            drawText(textProgram, textVAO, textVBO, gpuText, glm::vec2(SCR_WIDTH - 200.0f, 25.0f), 0.3f, glm::vec3(1.0f));
+        }
         glBindVertexArray(0);
 
         glfwSwapBuffers(window);

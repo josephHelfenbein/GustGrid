@@ -913,7 +913,8 @@ __global__ void updateFanAccessKernel(
                 continue;
             }
             if(voxelX==i && voxelY==j && voxelZ==k) break;
-            if(solidGrid[idx3D(voxelX, voxelY, voxelZ, c_GX, c_GY)] != 0){
+            int voxelIdx = idx3D(voxelX, voxelY, voxelZ, c_GX, c_GY);
+            if(solidGrid[voxelIdx] != 0 || fanCanAccess[f * numCells + voxelIdx] == 0){
                 hit = true;
                 break;
             }

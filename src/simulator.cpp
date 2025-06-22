@@ -27,8 +27,8 @@ static inline int idx3D(int x, int y, int z, int gridSizeX, int gridSizeY){
 #define gridSizeZ 128
 const int numCells = (gridSizeX * gridSizeY * gridSizeZ);
 
-int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* volumeField, bool &itemChanged, bool &running, std::function<void()> signalVelocityFieldReady, std::function<void()> waitForItems, bool &displayPressure, float* temperatureField, double& stepsPerSecond){
-    waitForItems();
+void setupSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, unsigned char** d_solidGrid, float3** d_fanPositions, float3** d_fanDirections, float** d_heatSources, int &numFans){
+    CUDA_CHECK(cudaSetDevice(0));
     std::vector<unsigned char> h_solidGrid(numCells, 0);
     std::vector<float> h_heatSources(numCells, 0.0f);
     std::vector<float3> h_fanPositions;
@@ -36,37 +36,23 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
     int maxFanCount = 1 + 1 + 1 + 2 + 3;
     h_fanPositions.reserve(maxFanCount);
     h_fanDirections.reserve(maxFanCount);
-    float3* d_fanPositions = nullptr;
-    float3* d_fanDirections = nullptr;
-    float* d_velocityField = nullptr;
-    float* d_speedField = nullptr;
-    float* d_pressureField = nullptr;
-    float* d_heatSources = nullptr;
-    float* d_temperature = nullptr;
-    unsigned char* d_solidGrid = nullptr;
+    *d_fanPositions = nullptr;
+    *d_fanDirections = nullptr; 
+    *d_heatSources = nullptr;
+    *d_solidGrid = nullptr;
     size_t solidGridSize = numCells * sizeof(unsigned char);
     size_t pressureFieldSize = numCells * sizeof(float);
-    std::vector<float> h_volume(numCells, 0.0f);
-    std::vector<float> h_temperature(numCells, 0.0f);
     size_t fanPositionsSize = maxFanCount * sizeof(float3);
     size_t fanDirectionsSize = maxFanCount * sizeof(float3);
-    int numFans = 0;
+    numFans = 0;
 
-    CUDA_CHECK(cudaMalloc(&d_velocityField, pressureFieldSize * 3));
-    CUDA_CHECK(cudaMemset(d_velocityField, 0, pressureFieldSize * 3));
-    CUDA_CHECK(cudaMalloc(&d_pressureField, pressureFieldSize));
-    CUDA_CHECK(cudaMemset(d_pressureField, 0, pressureFieldSize));
-    CUDA_CHECK(cudaMalloc(&d_speedField, pressureFieldSize));
-    CUDA_CHECK(cudaMemset(d_speedField, 0, pressureFieldSize));
-    CUDA_CHECK(cudaMalloc(&d_heatSources, pressureFieldSize));
-    CUDA_CHECK(cudaMemset(d_heatSources, 0, pressureFieldSize));
-    CUDA_CHECK(cudaMalloc(&d_temperature, pressureFieldSize));
-    CUDA_CHECK(cudaMemset(d_temperature, 0, pressureFieldSize));
+    CUDA_CHECK(cudaMalloc((void**) d_heatSources, pressureFieldSize));
+    CUDA_CHECK(cudaMemset(*d_heatSources, 0, pressureFieldSize));
 
-    CUDA_CHECK(cudaMalloc(&d_solidGrid, solidGridSize));
+    CUDA_CHECK(cudaMalloc((void**) d_solidGrid, solidGridSize));
 
-    CUDA_CHECK(cudaMalloc(&d_fanPositions, fanPositionsSize));
-    CUDA_CHECK(cudaMalloc(&d_fanDirections, fanDirectionsSize));
+    CUDA_CHECK(cudaMalloc((void**) d_fanPositions, fanPositionsSize));
+    CUDA_CHECK(cudaMalloc((void**) d_fanDirections, fanDirectionsSize));
 
     const float cellSizeX = 4.0f / gridSizeX;
     const float cellSizeY = 9.0f / gridSizeY;
@@ -151,88 +137,16 @@ int startSimulator(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, b
             h_fanDirections.push_back(backFanDir);
         }
 
-        CUDA_CHECK(cudaMemcpy(d_solidGrid, h_solidGrid.data(), solidGridSize, cudaMemcpyHostToDevice));
-        CUDA_CHECK(cudaMemcpy(d_heatSources, h_heatSources.data(), pressureFieldSize, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(*d_solidGrid, h_solidGrid.data(), solidGridSize, cudaMemcpyHostToDevice));
+        CUDA_CHECK(cudaMemcpy(*d_heatSources, h_heatSources.data(), pressureFieldSize, cudaMemcpyHostToDevice));
 
         numFans = static_cast<int>(h_fanPositions.size());
         if(numFans > 0) {
-            CUDA_CHECK(cudaMemcpy(d_fanPositions, h_fanPositions.data(), fanPositionsSize, cudaMemcpyHostToDevice));
-            CUDA_CHECK(cudaMemcpy(d_fanDirections, h_fanDirections.data(), fanDirectionsSize, cudaMemcpyHostToDevice));
+            size_t actualFanPositionsSize = numFans * sizeof(float3);
+            size_t actualFanDirectionsSize = numFans * sizeof(float3);
+            CUDA_CHECK(cudaMemcpy(*d_fanPositions, h_fanPositions.data(), actualFanPositionsSize, cudaMemcpyHostToDevice));
+            CUDA_CHECK(cudaMemcpy(*d_fanDirections, h_fanDirections.data(), actualFanDirectionsSize, cudaMemcpyHostToDevice));
         }
     };
     buildFanLists();
-    
-    float dt = 1 / 60.0f; // 60 FPS limit
-    initializeConstantsExtern(gridSizeX, gridSizeY, gridSizeZ);
-    runFluidSimulation(
-        gridSizeX, gridSizeY, gridSizeZ,
-        d_velocityField,
-        d_speedField,
-        d_pressureField,
-        d_solidGrid,
-        d_fanPositions,
-        d_fanDirections,
-        d_heatSources,
-        d_temperature,
-        true,
-        numFans,
-        dt
-    );
-    CUDA_CHECK(cudaMemcpy(h_temperature.data(), d_temperature, pressureFieldSize, cudaMemcpyDeviceToHost));
-    std::memcpy(temperatureField, h_temperature.data(), pressureFieldSize);
-    if(!displayPressure) CUDA_CHECK(cudaMemcpy(h_volume.data(), d_speedField, pressureFieldSize, cudaMemcpyDeviceToHost));
-    else CUDA_CHECK(cudaMemcpy(h_volume.data(), d_pressureField, pressureFieldSize, cudaMemcpyDeviceToHost));
-    std::memcpy(volumeField, h_volume.data(), pressureFieldSize);
-    signalVelocityFieldReady();
-    std::chrono::steady_clock::time_point lastTime = std::chrono::steady_clock::now();
-    while(running){
-        if(itemChanged){
-            fillOccupancy();
-            buildFanLists();
-            runFluidSimulation(
-                gridSizeX, gridSizeY, gridSizeZ,
-                d_velocityField,
-                d_speedField,
-                d_pressureField,
-                d_solidGrid,
-                d_fanPositions,
-                d_fanDirections,
-                d_heatSources,
-                d_temperature,
-                true,
-                numFans,
-                dt
-            );
-            itemChanged = false;
-        }
-        else runFluidSimulation(
-            gridSizeX, gridSizeY, gridSizeZ,
-            d_velocityField,
-            d_speedField,
-            d_pressureField,
-            d_solidGrid,
-            d_fanPositions,
-            d_fanDirections,
-            d_heatSources,
-            d_temperature,
-            false,
-            numFans,
-            dt
-        );
-        CUDA_CHECK(cudaMemcpy(h_temperature.data(), d_temperature, pressureFieldSize, cudaMemcpyDeviceToHost));
-        std::memcpy(temperatureField, h_temperature.data(), pressureFieldSize);
-        if(!displayPressure) CUDA_CHECK(cudaMemcpy(h_volume.data(), d_speedField, pressureFieldSize, cudaMemcpyDeviceToHost));
-        else CUDA_CHECK(cudaMemcpy(h_volume.data(), d_pressureField, pressureFieldSize, cudaMemcpyDeviceToHost));
-        std::memcpy(volumeField, h_volume.data(), pressureFieldSize);
-        std::chrono::steady_clock::time_point currTime = std::chrono::steady_clock::now();
-        std::chrono::duration<double> elapsedSeconds = currTime - lastTime;
-        lastTime = currTime;
-        stepsPerSecond = 1.0 / elapsedSeconds.count();
-    }
-    CUDA_CHECK(cudaFree(d_velocityField));
-    CUDA_CHECK(cudaFree(d_pressureField));
-    CUDA_CHECK(cudaFree(d_solidGrid));
-    CUDA_CHECK(cudaFree(d_fanPositions));
-    CUDA_CHECK(cudaFree(d_fanDirections));
-    return 0;
 }

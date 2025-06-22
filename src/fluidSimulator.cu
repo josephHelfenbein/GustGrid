@@ -37,6 +37,9 @@ __host__ __device__ static inline int idx3D(int x, int y, int z, int gridSizeX, 
         } \
     } while (0)
 
+int GX;
+int GY;
+int GZ;
 constexpr float worldMinX = -2.0f;
 constexpr float worldMaxX = 2.0f;
 constexpr float worldMinY = -4.5f;
@@ -55,36 +58,6 @@ constexpr float thermalExpansionCoefficient = 0.0034f;
 constexpr float gravity = 9.81f;
 constexpr float buoyancyFactor = 0.5f;
 constexpr float referenceDensity = 1.225f;
-
-__host__ void initializeConstants(int gridSizeX, int gridSizeY, int gridSizeZ){
-    cudaMemcpyToSymbol(c_GX, &gridSizeX, sizeof(int));
-    cudaMemcpyToSymbol(c_GY, &gridSizeY, sizeof(int));
-    cudaMemcpyToSymbol(c_GZ, &gridSizeZ, sizeof(int));
-    float tempCellSizeX = (worldMaxX - worldMinX) / gridSizeX;
-    float tempCellSizeY = (worldMaxY - worldMinY) / gridSizeY;
-    float tempCellSizeZ = (worldMaxZ - worldMinZ) / gridSizeZ;
-    cudaMemcpyToSymbol(c_cellSizeX, &tempCellSizeX, sizeof(float));
-    cudaMemcpyToSymbol(c_cellSizeY, &tempCellSizeY, sizeof(float));
-    cudaMemcpyToSymbol(c_cellSizeZ, &tempCellSizeZ, sizeof(float));
-    cudaMemcpyToSymbol(c_worldMinX, &worldMinX, sizeof(float));
-    cudaMemcpyToSymbol(c_worldMinY, &worldMinY, sizeof(float));
-    cudaMemcpyToSymbol(c_worldMinZ, &worldMinZ, sizeof(float));
-    cudaMemcpyToSymbol(c_worldMaxX, &worldMaxX, sizeof(float));
-    cudaMemcpyToSymbol(c_worldMaxY, &worldMaxY, sizeof(float));
-    cudaMemcpyToSymbol(c_worldMaxZ, &worldMaxZ, sizeof(float));
-    cudaMemcpyToSymbol(c_thermalDiffusivity, &thermalDiffusivity, sizeof(float));
-    cudaMemcpyToSymbol(c_ambientTemperature, &ambientTemperature, sizeof(float));
-    cudaMemcpyToSymbol(c_heatSourceStrength, &heatSourceStrength, sizeof(float));
-    cudaMemcpyToSymbol(c_thermalExpansionCoefficient, &thermalExpansionCoefficient, sizeof(float));
-    cudaMemcpyToSymbol(c_gravity, &gravity, sizeof(float));
-    cudaMemcpyToSymbol(c_buoyancyFactor, &buoyancyFactor, sizeof(float));
-    cudaMemcpyToSymbol(c_referenceDensity, &referenceDensity, sizeof(float));
-    CUDA_CHECK(cudaDeviceSynchronize());
-}
-
-extern "C" void initializeConstantsExtern(int gridSizeX, int gridSizeY, int gridSizeZ){
-    initializeConstants(gridSizeX, gridSizeY, gridSizeZ);
-}
 
 class CudaMemoryPool{
 private:
@@ -139,6 +112,10 @@ private:
     float* d_pressureOut = nullptr;
     float* d_residual = nullptr;
     float* d_tempVelocity = nullptr;
+    float* d_velocity = nullptr;
+    float* d_speed = nullptr;
+    float* d_temperature = nullptr;
+    float* d_pressureTemp = nullptr;
     float* d_tempTemperature = nullptr;
     float* d_tempSum = nullptr;
     float* d_weightSum = nullptr;
@@ -157,6 +134,10 @@ public:
         pool.deallocate(d_pressureOut);
         pool.deallocate(d_residual);
         pool.deallocate(d_tempVelocity);
+        pool.deallocate(d_velocity);
+        pool.deallocate(d_speed);
+        pool.deallocate(d_temperature);
+        pool.deallocate(d_pressureTemp);
         pool.deallocate(d_tempTemperature);
         pool.deallocate(d_tempSum);
         pool.deallocate(d_weightSum);
@@ -170,9 +151,13 @@ public:
         auto& pool = CudaMemoryPool::getInstance();
         d_divergence = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_pressure = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_pressureTemp = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_pressureOut = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_residual = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_tempVelocity = static_cast<float*>(pool.allocate(numCells * 3 * sizeof(float)));
+        d_velocity = static_cast<float*>(pool.allocate(numCells * 3 * sizeof(float)));
+        d_speed = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_temperature = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_tempTemperature = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_tempSum = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_weightSum = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
@@ -182,9 +167,13 @@ public:
     }
     float* getDivergence() { return d_divergence; }
     float* getPressure() { return d_pressure; }
+    float* getPressureTemp() { return d_pressureTemp; }
     float* getPressureOut() { return d_pressureOut; }
     float* getResidual() { return d_residual; }
     float* getTempVelocity() { return d_tempVelocity; }
+    float* getVelocity() { return d_velocity; }
+    float* getSpeed() { return d_speed; }
+    float* getTemperature() { return d_temperature; }
     float* getTempTemperature() { return d_tempTemperature; }
     float* getTempSum() { return d_tempSum; }
     float* getWeightSum() { return d_weightSum; }
@@ -195,6 +184,50 @@ public:
         return instance;
     }
 };
+
+__host__ void initializeConstants(int gridSizeX, int gridSizeY, int gridSizeZ){
+    cudaMemcpyToSymbol(c_GX, &gridSizeX, sizeof(int));
+    cudaMemcpyToSymbol(c_GY, &gridSizeY, sizeof(int));
+    cudaMemcpyToSymbol(c_GZ, &gridSizeZ, sizeof(int));
+    GX = gridSizeX;
+    GY = gridSizeY;
+    GZ = gridSizeZ;
+    float tempCellSizeX = (worldMaxX - worldMinX) / gridSizeX;
+    float tempCellSizeY = (worldMaxY - worldMinY) / gridSizeY;
+    float tempCellSizeZ = (worldMaxZ - worldMinZ) / gridSizeZ;
+    cudaMemcpyToSymbol(c_cellSizeX, &tempCellSizeX, sizeof(float));
+    cudaMemcpyToSymbol(c_cellSizeY, &tempCellSizeY, sizeof(float));
+    cudaMemcpyToSymbol(c_cellSizeZ, &tempCellSizeZ, sizeof(float));
+    cudaMemcpyToSymbol(c_worldMinX, &worldMinX, sizeof(float));
+    cudaMemcpyToSymbol(c_worldMinY, &worldMinY, sizeof(float));
+    cudaMemcpyToSymbol(c_worldMinZ, &worldMinZ, sizeof(float));
+    cudaMemcpyToSymbol(c_worldMaxX, &worldMaxX, sizeof(float));
+    cudaMemcpyToSymbol(c_worldMaxY, &worldMaxY, sizeof(float));
+    cudaMemcpyToSymbol(c_worldMaxZ, &worldMaxZ, sizeof(float));
+    cudaMemcpyToSymbol(c_thermalDiffusivity, &thermalDiffusivity, sizeof(float));
+    cudaMemcpyToSymbol(c_ambientTemperature, &ambientTemperature, sizeof(float));
+    cudaMemcpyToSymbol(c_heatSourceStrength, &heatSourceStrength, sizeof(float));
+    cudaMemcpyToSymbol(c_thermalExpansionCoefficient, &thermalExpansionCoefficient, sizeof(float));
+    cudaMemcpyToSymbol(c_gravity, &gravity, sizeof(float));
+    cudaMemcpyToSymbol(c_buoyancyFactor, &buoyancyFactor, sizeof(float));
+    cudaMemcpyToSymbol(c_referenceDensity, &referenceDensity, sizeof(float));
+    auto& simMem = SimulationMemory::getInstance();
+    int numCells = GX * GY * GZ;
+    simMem.ensureAllocated(numCells);
+    float* d_speed = simMem.getSpeed();
+    float* d_temperature = simMem.getTemperature();
+    float* d_velocity = simMem.getVelocity();
+    float* d_pressure = simMem.getPressure();
+    CUDA_CHECK(cudaMemset(d_speed, 0, numCells * sizeof(float)));
+    CUDA_CHECK(cudaMemset(d_temperature, 0, numCells * sizeof(float)));
+    CUDA_CHECK(cudaMemset(d_velocity, 0, numCells * 3 * sizeof(float)));
+    CUDA_CHECK(cudaMemset(d_pressure, 0, numCells * sizeof(float)));
+    CUDA_CHECK(cudaDeviceSynchronize());
+}
+
+extern "C" void initializeConstantsExtern(int gridSizeX, int gridSizeY, int gridSizeZ){
+    initializeConstants(gridSizeX, gridSizeY, gridSizeZ);
+}
 
 __device__ __forceinline__ bool isValidFluidCell(int x, int y, int z, const unsigned char* __restrict__ solidGrid) {
     if (x < 0 || x >= c_GX || y < 0 || y >= c_GY || z < 0 || z >= c_GZ) return false;
@@ -756,14 +789,13 @@ __host__ void solvePressureProjection(
     float* d_pressureField,
     float* d_temperature,
     unsigned char* d_solidGrid,
-    int GX, int GY, int GZ,
     float dt
 ){
     const int numCells = GX * GY * GZ;
     auto& simMem = SimulationMemory::getInstance();
     simMem.ensureAllocated(numCells);
     float* d_divergence = simMem.getDivergence();
-    float* d_pressure = simMem.getPressure();
+    float* d_pressure = simMem.getPressureTemp();
     float* d_pressureOut = simMem.getPressureOut();
     float* d_residual = simMem.getResidual();
 
@@ -871,9 +903,9 @@ __global__ void updateFanAccessKernel(
                 fanPosition.y + rayDir.y * t,
                 fanPosition.z + rayDir.z * t
             );
-            int voxelX = (int)floorf((samplePos.x - c_worldMinX) / c_cellSizeX);
-            int voxelY = (int)floorf((samplePos.y - c_worldMinY) / c_cellSizeY);
-            int voxelZ = (int)floorf((samplePos.z - c_worldMinZ) / c_cellSizeZ);
+            int voxelX = (int) floorf((samplePos.x - c_worldMinX) / c_cellSizeX);
+            int voxelY = (int) floorf((samplePos.y - c_worldMinY) / c_cellSizeY);
+            int voxelZ = (int) floorf((samplePos.z - c_worldMinZ) / c_cellSizeZ);
             if(voxelX < 0 || voxelX >= c_GX
             || voxelY < 0 || voxelY >= c_GY
             || voxelZ < 0 || voxelZ >= c_GZ){
@@ -1121,26 +1153,25 @@ __global__ void velocityUpdateKernel(
 }
 
 extern "C" void runFluidSimulation(
-    int gridSizeX, int gridSizeY, int gridSizeZ,
-    float* d_velocityField,
-    float* d_speedField,
-    float* d_pressureField,
     unsigned char* d_solidGrid,
     float3* d_fanPositions,
     float3* d_fanDirections,
     float* d_heatSources,
-    float* d_temperature,
     bool shouldResetFanAccess,
     int numFans,
-    float dt
+    float dt,
+    cudaGraphicsResource* volumeResource,
+    cudaGraphicsResource* temperatureResource,
+    bool displayPressure
 ){
+    CUDA_CHECK(cudaSetDevice(0));
     dim3 block(8, 8, 8);
     dim3 grid(
-        (gridSizeX + block.x - 1) / block.x,
-        (gridSizeY + block.y - 1) / block.y,
-        (gridSizeZ + block.z - 1) / block.z
+        (GX + block.x - 1) / block.x,
+        (GY + block.y - 1) / block.y,
+        (GZ + block.z - 1) / block.z
     );
-    const int numCells = gridSizeX * gridSizeY * gridSizeZ;
+    const int numCells = GX * GY * GZ;
     auto& simMem = SimulationMemory::getInstance();
     simMem.ensureAllocated(numCells);
     float* d_tempVelocity = simMem.getTempVelocity();
@@ -1148,10 +1179,18 @@ extern "C" void runFluidSimulation(
     float* d_tempSum = simMem.getTempSum();
     float* d_weightSum = simMem.getWeightSum();
     float* d_tempSumDiss = simMem.getTempSumDiss();
+    float* d_velocityField = simMem.getVelocity();
+    float* d_temperature = simMem.getTemperature();
+    float* d_speedField = simMem.getSpeed();
+    float* d_pressureField = simMem.getPressure();
     unsigned char* d_fanCanAccess = simMem.getFanAccess();
     CUDA_CHECK(cudaMemset(d_tempSum, 0, numCells * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_weightSum, 0, numCells * sizeof(float)));
     CUDA_CHECK(cudaMemset(d_tempSumDiss, 0, numCells * sizeof(float)));
+    if(!d_fanPositions || !d_solidGrid) {
+        printf("Null pointer detected!\n");
+        return;
+    }
     if(shouldResetFanAccess){
         CUDA_CHECK(cudaMemset(d_fanCanAccess, 1, 8 * numCells * sizeof(unsigned char)));
         updateFanAccessKernel<<<grid, block>>>(
@@ -1166,7 +1205,7 @@ extern "C" void runFluidSimulation(
     CUDA_CHECK(cudaDeviceSynchronize());
     CUDA_CHECK(cudaMemcpy(d_velocityField, d_tempVelocity, numCells * 3 * sizeof(float), cudaMemcpyDeviceToDevice));
     solvePressureProjection(
-        d_velocityField, d_pressureField, d_temperature, d_solidGrid, gridSizeX, gridSizeY, gridSizeZ, dt
+        d_velocityField, d_pressureField, d_temperature, d_solidGrid, dt
     );
     advectKernel<<<grid, block>>>(
         d_temperature, d_velocityField, d_speedField, d_tempSum, d_weightSum, d_tempSumDiss, d_solidGrid, dt
@@ -1184,4 +1223,21 @@ extern "C" void runFluidSimulation(
         d_tempTemperature, d_temperature, d_heatSources, d_solidGrid, dt
     );
     CUDA_CHECK(cudaDeviceSynchronize());
+    CUDA_CHECK(cudaGraphicsMapResources(1, &volumeResource, 0));
+    CUDA_CHECK(cudaGraphicsMapResources(1, &temperatureResource, 0));
+    cudaArray_t volumeArray, temperatureArray;
+    CUDA_CHECK(cudaGraphicsSubResourceGetMappedArray(&volumeArray, volumeResource, 0, 0));
+    CUDA_CHECK(cudaGraphicsSubResourceGetMappedArray(&temperatureArray, temperatureResource, 0, 0));
+    cudaMemcpy3DParms copyParams = {0};
+    copyParams.extent = make_cudaExtent(GX, GY, GZ);
+    copyParams.kind = cudaMemcpyDeviceToDevice;
+    if(displayPressure) copyParams.srcPtr = make_cudaPitchedPtr(d_pressureField, GX * sizeof(float), GX, GY);
+    else copyParams.srcPtr = make_cudaPitchedPtr(d_speedField, GX * sizeof(float), GX, GY);
+    copyParams.dstArray = volumeArray;
+    CUDA_CHECK(cudaMemcpy3D(&copyParams));
+    copyParams.srcPtr = make_cudaPitchedPtr(d_temperature, GX * sizeof(float), GX, GY);
+    copyParams.dstArray = temperatureArray;
+    CUDA_CHECK(cudaMemcpy3D(&copyParams));
+    cudaGraphicsUnmapResources(1, &volumeResource, 0);
+    cudaGraphicsUnmapResources(1, &temperatureResource, 0);
 }

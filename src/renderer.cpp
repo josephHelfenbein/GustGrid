@@ -15,6 +15,10 @@
 #include <functional>
 #include <omp.h>
 #include <array>
+#include <cuda_runtime.h>
+#include <cuda_gl_interop.h>
+#include <simulator.h>
+#include <fluidSimulator.h>
 
 #define uiVertexPath "./src/shaders/ui.vert"
 #define uiFragmentPath "./src/shaders/ui.frag"
@@ -64,6 +68,15 @@
 #define gridSizeY 256
 #define gridSizeZ 128
 
+#define CUDA_CHECK(call) \
+    do { \
+        cudaError_t err = call; \
+        if (err != cudaSuccess) { \
+            std::cerr<<"CUDA error: "<<cudaGetErrorString(err)<<" in "<< __FILE__ <<" on line "<<__LINE__<<std::endl; \
+            exit(EXIT_FAILURE); \
+        } \
+    } while (0)
+
 unsigned int SCR_WIDTH = 800;
 unsigned int SCR_HEIGHT = 600;
 float camYaw = PI / 8;
@@ -82,8 +95,18 @@ float lastMouseX = SCR_WIDTH / 2.0f;
 float lastMouseY = SCR_HEIGHT / 2.0f;
 float mouseSensitivity = 0.007f;
 bool showUI = true;
-bool* itemChangedPtr = nullptr;
-bool* runningPtr = nullptr;
+bool displayPressure = false;
+bool gpuEnabled = true;
+bool topFanEnabled = true;
+bool cpuFanEnabled = true;
+bool frontFanEnabled = true;
+float backFanLocations[3] = {0.0f, -2.5f, 1.0f};
+unsigned char* d_solidGrid;
+float3* d_fanPositions;
+float3* d_fanDirections;
+float* d_heatSources;
+bool shouldResetFanAccess = true;
+int numFans;
 
 std::vector<unsigned int> VAOs;
 std::vector<unsigned int> buffers;
@@ -153,10 +176,8 @@ const char* glassTexturesSource[4] = {
 float checkboxYPositions[4] = {100.0f, 130.0f, 160.0f, 190.0f};
 bool *checkboxItems[4];
 float sliderYPositions[3];
-float *sliderXValues[3];
 float possibleSliderXValues[3];
 int hoverElement = -1;
-bool *displayingPressure = nullptr;
 
 static inline int idx3D(int x, int y, int z){
     return x + y * gridSizeX + z * gridSizeX * gridSizeY;
@@ -220,8 +241,8 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
     else if(showUI){
         for(int i=0; i<3; i++){
             if(sliderYPositions[i] == 1.0) continue;
-            float minValue = i==0 ? 0.0f : *sliderXValues[i-1] - 2.5f;
-            float maxValue = i==2 || *sliderXValues[i+1] == 1.0 ? -5.0f : *sliderXValues[i+1] + 2.5f;
+            float minValue = i==0 ? 0.0f : backFanLocations[i-1] - 2.5f;
+            float maxValue = i==2 || backFanLocations[i+1] == 1.0 ? -5.0f : backFanLocations[i+1] + 2.5f;
             if(
                 yposFloat < sliderYPositions[i]
             &&  yposFloat > sliderYPositions[i] - 20.0f
@@ -230,11 +251,12 @@ void mouseCallback(GLFWwindow* window, double xpos, double ypos){
                 possibleSliderXValues[i] = 5 * (-xposFloat + (SCR_WIDTH - 140.0f)) / 80.0f;
                 if(possibleSliderXValues[i] > minValue) possibleSliderXValues[i] = minValue;
                 else if(possibleSliderXValues[i] < maxValue) possibleSliderXValues[i] = maxValue;
-                *sliderXValues[i] = possibleSliderXValues[i];
-                *itemChangedPtr = true;
+                backFanLocations[i] = possibleSliderXValues[i];
+                setupSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, &d_solidGrid, &d_fanPositions, &d_fanDirections, &d_heatSources, numFans);
+                shouldResetFanAccess = true;
                 return;
             }
-            else possibleSliderXValues[i] = *sliderXValues[i];
+            else possibleSliderXValues[i] = backFanLocations[i];
         }
         if(
             yposFloat > 50.0f
@@ -272,24 +294,25 @@ void processInput(GLFWwindow* window){
         if(hoverElement < 4) *checkboxItems[hoverElement] = !(*checkboxItems[hoverElement]);
         else if(hoverElement == 4){
             int lastIndex = 0;
-            if(*sliderXValues[0] != 1.0f) lastIndex = 1;
-            if(*sliderXValues[1] != 1.0f) lastIndex = 2;
-            if(*sliderXValues[2] != 1.0f) lastIndex = 3;
-            if(lastIndex<3) for(int i=0; i<=lastIndex; i++) *sliderXValues[i] = i==0 ? 0.0f : *sliderXValues[i-1] - 2.5f;
+            if(backFanLocations[0] != 1.0f) lastIndex = 1;
+            if(backFanLocations[1] != 1.0f) lastIndex = 2;
+            if(backFanLocations[2] != 1.0f) lastIndex = 3;
+            if(lastIndex<3) for(int i=0; i<=lastIndex; i++) backFanLocations[i] = i==0 ? 0.0f : backFanLocations[i-1] - 2.5f;
         }
         else if(hoverElement == 5){
             int lastIndex = 2;
-            if(*sliderXValues[2] == 1.0f) lastIndex = 1;
-            if(*sliderXValues[1] == 1.0f) lastIndex = 0;
-            *sliderXValues[lastIndex] = 1.0f;
+            if(backFanLocations[2] == 1.0f) lastIndex = 1;
+            if(backFanLocations[1] == 1.0f) lastIndex = 0;
+            backFanLocations[lastIndex] = 1.0f;
         }
         else if(hoverElement == 6) {
             showUI = !showUI;
             hoverElement = -1;
         }
-        else if(hoverElement == 7) *displayingPressure = !(*displayingPressure);
+        else if(hoverElement == 7) displayPressure = !displayPressure;
         firstMouse = false;
-        *itemChangedPtr = true;
+        setupSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, &d_solidGrid, &d_fanPositions, &d_fanDirections, &d_heatSources, numFans);
+        shouldResetFanAccess = true;
     }
     else if(glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_RELEASE) firstMouse = true;   
 }
@@ -611,7 +634,16 @@ void drawArrowInput(unsigned int shader, unsigned int VAO, unsigned int VBO, glm
     glUniform1i(glGetUniformLocation(shader, "image"), 0);
     glDrawArrays(GL_TRIANGLES, 0, 6);
 }
-int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bool &frontFanEnabled, float* backFanLocations, float* volumeField, bool &itemChanged, bool &running, std::function<void()> waitForVelocityField, std::function<void()> signalItemsReady, bool &displayPressure, float* temperatureField, double& stepsPerSecond){
+float readFromTexture3D(GLuint textureID, int x, int y, int z) {
+    float u = (x + 0.5f) / gridSizeX;
+    float v = (y + 0.5f) / gridSizeY;
+    float w = (z + 0.5f) / gridSizeZ;
+    std::vector<float> data(gridSizeX * gridSizeY * gridSizeZ);
+    glBindTexture(GL_TEXTURE_3D, textureID);
+    glGetTexImage(GL_TEXTURE_3D, 0, GL_RED, GL_FLOAT, data.data());
+    return data[z * gridSizeX * gridSizeY + y * gridSizeX + x];
+}
+int startRenderer(){
     if(!glfwInit()){
         std::cerr<<"Failed to initialize GLFW"<<std::endl;
         return -1;
@@ -621,8 +653,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 2);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
 
-    GLFWwindow* window;
-    window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "GustGrid", nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "GustGrid", nullptr, nullptr);
     if(window == nullptr){
         std::cerr<<"Failed to create GLFW window"<<std::endl;
         glfwTerminate();
@@ -789,7 +820,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     unsigned int volume3DTexture;
     glGenTextures(1, &volume3DTexture);
     glBindTexture(GL_TEXTURE_3D, volume3DTexture);
-    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, gridSizeX, gridSizeY, gridSizeZ);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_R32F, gridSizeX, gridSizeY, gridSizeZ, 0, GL_RED, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -800,7 +831,7 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     unsigned int temperature3DTexture;
     glGenTextures(1, &temperature3DTexture);
     glBindTexture(GL_TEXTURE_3D, temperature3DTexture);
-    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, gridSizeX, gridSizeY, gridSizeZ);
+    glTexImage3D(GL_TEXTURE_3D, 0, GL_R32F, gridSizeX, gridSizeY, gridSizeZ, 0, GL_RED, GL_FLOAT, nullptr);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -847,32 +878,48 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
     buffers.push_back(idxEBO);
     buffers.push_back(posVBO);
 
+    CUDA_CHECK(cudaSetDevice(0));
+    glFinish();
+    cudaGraphicsResource* temperatureResource;
+    cudaGraphicsResource* volumeResource;
+    CUDA_CHECK(cudaGraphicsGLRegisterImage(&volumeResource, volume3DTexture, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsWriteDiscard));
+    CUDA_CHECK(cudaGraphicsGLRegisterImage(&temperatureResource, temperature3DTexture, GL_TEXTURE_3D, cudaGraphicsRegisterFlagsWriteDiscard));
+
     checkboxItems[0] = &gpuEnabled;
     checkboxItems[1] = &topFanEnabled;
     checkboxItems[2] = &cpuFanEnabled;
     checkboxItems[3] = &frontFanEnabled;
 
-    for(int i=0; i<3; i++) sliderXValues[i] = &backFanLocations[i];
-
-    itemChangedPtr = &itemChanged;
-    runningPtr = &running;
-    displayingPressure = &displayPressure;
     int totalCells = gridSizeX * gridSizeY * gridSizeZ;
 
     char* vertexShaderSource = getShaders(vertexShaderPath);
     char* fragmentShaderSource = getShaders(fragmentShaderPath);
     unsigned int shaderProgram = createShader(vertexShaderSource, fragmentShaderSource);
 
-    signalItemsReady();
-    waitForVelocityField();
-
     float dt = 1.0f / 60.0f; // 60 FPS limit
+    float simDt = 1.0f / 60.0f; // 60 FPS simulation step
+    setupSimulator(gpuEnabled, topFanEnabled, cpuFanEnabled, frontFanEnabled, backFanLocations, &d_solidGrid, &d_fanPositions, &d_fanDirections, &d_heatSources, numFans);
+    initializeConstantsExtern(gridSizeX, gridSizeY, gridSizeZ);
     while(!glfwWindowShouldClose(window)){
         float currentFrame = static_cast<float>(glfwGetTime());
         deltaTime = currentFrame - lastFrame;
         processInput(window);
         if(deltaTime < dt) continue;
         lastFrame = currentFrame;
+
+        runFluidSimulation(
+            d_solidGrid,
+            d_fanPositions,
+            d_fanDirections,
+            d_heatSources,
+            shouldResetFanAccess,
+            numFans,
+            simDt,
+            volumeResource,
+            temperatureResource,
+            displayPressure
+        );
+        shouldResetFanAccess = false;
 
         glClearColor(0.1f, 0.1f, 0.25f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -928,11 +975,10 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         drawObject(shieldTextures, shaderProgram, shieldVAO, shieldIndexCount);
         glDepthMask(GL_TRUE);
 
+        glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_3D, volume3DTexture);
-        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, &volumeField[0]);
+        glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_3D, temperature3DTexture);
-        glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, gridSizeX, gridSizeY, gridSizeZ, GL_RED, GL_FLOAT, &temperatureField[0]);
-        glBindTexture(GL_TEXTURE_3D, 0);
 
         glUseProgram(volumeShaderProgram);
 
@@ -1012,26 +1058,24 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
         int fps = (int)(1.0f / deltaTime);
         snprintf(fpsText, sizeof(fpsText), "%d FPS", fps);
         drawText(textProgram, textVAO, textVBO, fpsText, glm::vec2(30.0f, SCR_HEIGHT - 30.0f), 0.4f, glm::vec3(1.0f));
-        char spsText[10];
-        snprintf(spsText, sizeof(spsText), "%0.2f SPS", stepsPerSecond);
-        drawText(textProgram, textVAO, textVBO, spsText, glm::vec2(30.0f, SCR_HEIGHT - 60.0f), 0.4f, glm::vec3(1.0f));
         drawSprite(uiProgram, spriteVAO, spriteVBO, glm::vec2(30.0f, SCR_HEIGHT - 120.0f), glm::vec2(20.0f, -300.0f), glm::vec3(1.0f), thermalMapTexture);
         drawText(textProgram, textVAO, textVBO, "22°C", glm::vec2(55.0f, SCR_HEIGHT - 420.0f), 0.3f, glm::vec3(1.0f));
         drawText(textProgram, textVAO, textVBO, "61°C", glm::vec2(55.0f, SCR_HEIGHT - 270.0f), 0.3f, glm::vec3(1.0f));
         drawText(textProgram, textVAO, textVBO, "100°C", glm::vec2(55.0f, SCR_HEIGHT - 130.0f), 0.3f, glm::vec3(1.0f));
-        const char* cpuTempPrefix = "CPU Temperature: ";
-        char cpuText[25];
-        //  (-1.45f+2.0f)/(4.0f/gridSizeX)-0.5f, (2.45f+4.5f)/(9.0f/gridSizeY)-0.5f, (1.45f+4.0f)/(8.0f/gridSizeZ)-0.5f)
-        float cpuTemp = temperatureField[idx3D(8, 197, 87)];
-        snprintf(cpuText, sizeof(cpuText), "CPU Temperature: %0.2f°C", cpuTemp);
-        drawText(textProgram, textVAO, textVBO, cpuText, glm::vec2(SCR_WIDTH - 200.0f, 55.0f), 0.3f, glm::vec3(1.0f));
-        if(gpuEnabled){
-            char gpuText[25];
-            //  (0.25f+2.0f)/(4.0f/gridSizeX)-0.5f, (0.0f+4.5f)/(9.0f/gridSizeY)-0.5f, (3.5f+4.0f)/(8.0f/gridSizeZ)-0.5f)
-            float gpuTemp = temperatureField[idx3D(35, 154, 119)];
-            snprintf(gpuText, sizeof(gpuText), "GPU Temperature: %0.2f°C", gpuTemp);
-            drawText(textProgram, textVAO, textVBO, gpuText, glm::vec2(SCR_WIDTH - 200.0f, 25.0f), 0.3f, glm::vec3(1.0f));
-        }
+        // const char* cpuTempPrefix = "CPU Temperature: ";
+        // char cpuText[25];
+        // //  (-1.45f+2.0f)/(4.0f/gridSizeX)-0.5f, (2.45f+4.5f)/(9.0f/gridSizeY)-0.5f, (1.45f+4.0f)/(8.0f/gridSizeZ)-0.5f)
+        // float cpuTemp = readFromTexture3D(temperature3DTexture, 8, 197, 87);
+        // snprintf(cpuText, sizeof(cpuText), "CPU Temperature: %0.2f°C", cpuTemp);
+        // drawText(textProgram, textVAO, textVBO, cpuText, glm::vec2(SCR_WIDTH - 200.0f, 55.0f), 0.3f, glm::vec3(1.0f));
+
+        // if(gpuEnabled){
+        //     char gpuText[25];
+        //     //  (0.25f+2.0f)/(4.0f/gridSizeX)-0.5f, (0.0f+4.5f)/(9.0f/gridSizeY)-0.5f, (3.5f+4.0f)/(8.0f/gridSizeZ)-0.5f)
+        //     float gpuTemp = readFromTexture3D(temperature3DTexture, 35, 154, 119);
+        //     snprintf(gpuText, sizeof(gpuText), "GPU Temperature: %0.2f°C", gpuTemp);
+        //     drawText(textProgram, textVAO, textVBO, gpuText, glm::vec2(SCR_WIDTH - 200.0f, 25.0f), 0.3f, glm::vec3(1.0f));
+        // }
         glBindVertexArray(0);
 
         glfwSwapBuffers(window);
@@ -1040,7 +1084,10 @@ int startRenderer(bool &gpuEnabled, bool &topFanEnabled, bool &cpuFanEnabled, bo
 
     for(unsigned int VAO : VAOs) glDeleteVertexArrays(1, &VAO);
     for(unsigned int buffer : buffers) glDeleteBuffers(1, &buffer);
-    *runningPtr = false;
+
+    CUDA_CHECK(cudaFree(d_solidGrid));
+    CUDA_CHECK(cudaFree(d_fanPositions));
+    CUDA_CHECK(cudaFree(d_fanDirections));
 
     glfwTerminate();
     return 0;

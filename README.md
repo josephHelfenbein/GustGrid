@@ -161,16 +161,16 @@ To compile the project on Windows, you'll need:
 2. **vcpkg** - Install vcpkg at https://learn.microsoft.com/en-us/vcpkg/get_started/get-started?pivots=shell-powershell and add environment variables
 `VCPKG_ROOT=(PATH TO VCPKG)`
 `PATH=(PATH TO VCPKG)`
-4. Install needed packages with vcpkg
+3. Install needed packages with vcpkg
 ```bash
 vcpkg install freetype glfw3
 ```
-3. **CMake** - Install CMake at https://cmake.org/download/.
-4. **CUDA** - Install CUDA at https://developer.nvidia.com/cuda-downloads and add environment variables
+4. **CMake** - Install CMake at https://cmake.org/download/.
+5. **CUDA** - Install CUDA at https://developer.nvidia.com/cuda-downloads and add environment variables
 `CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\(YOUR CUDA VERSION)`
 `PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\(YOUR CUDA VERSION)\bin`
 `PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\(YOUR CUDA VERSION)\libnvvp`
-5. Go to the project directory in `x64 Native Tools Command Prompt for VS 2022` and run `code .`, then run the `Windows Release (CMake)` configuration in VSCode, or `Windows Debug (CMake)` for debugging without optimization flags.
+6. Go to the project directory in `x64 Native Tools Command Prompt for VS 2022` and run `code .`, then run the `Windows Release (CMake)` configuration in VSCode, or `Windows Debug (CMake)` for debugging without optimization flags.
 
 
 <!-- LICENSE -->

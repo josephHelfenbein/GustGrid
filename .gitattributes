@@ -1,6 +1,8 @@
-# Auto detect text files and perform LF normalization
 * text=auto
 
 src/glad.c linguist-vendored
 include/glad/glad.h linguist-vendored
 include/KHR/khrplatform.h linguist-vendored
+*.comp linguist-language=GLSL
+*.vert linguist-language=GLSL
+*.frag linguist-language=GLSL

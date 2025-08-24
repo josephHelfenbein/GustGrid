@@ -83,7 +83,9 @@ GustGrid is a high-performance simulation engine built in C++ and OpenGL, levera
 
 
 
-https://github.com/user-attachments/assets/b1666191-db96-4f09-b5ea-8ae2268e3c61
+https://github.com/user-attachments/assets/2e30b726-3e83-4628-b07e-84914f9ded4c
+
+
 
 <img src="src/textures/screenshot3.png" />
 

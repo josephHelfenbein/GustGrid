@@ -111,6 +111,8 @@ private:
     float* d_pressure = nullptr;
     float* d_pressureOut = nullptr;
     float* d_residual = nullptr;
+    float* d_residualSum = nullptr;
+    float* d_reduceScratch = nullptr;
     float* d_tempVelocity = nullptr;
     float* d_velocity = nullptr;
     float* d_speed = nullptr;
@@ -133,6 +135,8 @@ public:
         pool.deallocate(d_pressure);
         pool.deallocate(d_pressureOut);
         pool.deallocate(d_residual);
+        pool.deallocate(d_residualSum);
+        pool.deallocate(d_reduceScratch);
         pool.deallocate(d_tempVelocity);
         pool.deallocate(d_velocity);
         pool.deallocate(d_speed);
@@ -154,6 +158,8 @@ public:
         d_pressureTemp = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_pressureOut = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_residual = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
+        d_residualSum = static_cast<float*>(pool.allocate(sizeof(float)));
+        d_reduceScratch = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
         d_tempVelocity = static_cast<float*>(pool.allocate(numCells * 3 * sizeof(float)));
         d_velocity = static_cast<float*>(pool.allocate(numCells * 3 * sizeof(float)));
         d_speed = static_cast<float*>(pool.allocate(numCells * sizeof(float)));
@@ -170,6 +176,8 @@ public:
     float* getPressureTemp() { return d_pressureTemp; }
     float* getPressureOut() { return d_pressureOut; }
     float* getResidual() { return d_residual; }
+    float* getResidualSum() { return d_residualSum; }
+    float* getReduceScratch() { return d_reduceScratch; }
     float* getTempVelocity() { return d_tempVelocity; }
     float* getVelocity() { return d_velocity; }
     float* getSpeed() { return d_speed; }
@@ -490,6 +498,39 @@ __global__ void computeResidualKernel(
     }
     float residualValue = laplacian - divergence[idx];
     residual[idx] = residualValue * residualValue;
+}
+
+__global__ void reduceSumBlocksKernel(const float* __restrict__ in, float* __restrict__ out, int n) {
+    extern __shared__ float sdata[];
+    unsigned int tid = threadIdx.x;
+    unsigned int idx = blockIdx.x * blockDim.x * 2 + threadIdx.x;
+    float sum = 0.0f;
+    if (idx < n) sum += in[idx];
+    if (idx + blockDim.x < n) sum += in[idx + blockDim.x];
+    sdata[tid] = sum;
+    __syncthreads();
+    for (unsigned int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) sdata[tid] += sdata[tid + s];
+        __syncthreads();
+    }
+    if (tid == 0) out[blockIdx.x] = sdata[0];
+}
+
+__global__ void reduceFinalKernel(const float* __restrict__ in, float* __restrict__ out, int n) {
+    extern __shared__ float sdata[];
+    unsigned int tid = threadIdx.x;
+    unsigned int i = threadIdx.x;
+    float sum = 0.0f;
+    unsigned int idx = i * 2;
+    if (idx < n) sum += in[idx];
+    if (idx + 1 < n) sum += in[idx + 1];
+    sdata[tid] = sum;
+    __syncthreads();
+    for (unsigned int s = blockDim.x >> 1; s > 0; s >>= 1) {
+        if (tid < s) sdata[tid] += sdata[tid + s];
+        __syncthreads();
+    }
+    if (tid == 0) *out = sdata[0];
 }
 
 __global__ void advectKernel(
@@ -824,12 +865,20 @@ __host__ void solvePressureProjection(
                 d_pressure_in, d_divergence, d_residual, d_solidGrid
             );
             CUDA_CHECK(cudaDeviceSynchronize());
-            float residualSum = 0.0f;
-            float* h_residual = new float[numCells];
-            CUDA_CHECK(cudaMemcpy(h_residual, d_residual, numCells * sizeof(float), cudaMemcpyDeviceToHost));
-            for(int i = 0; i < numCells; i++) residualSum += h_residual[i];
-            delete[] h_residual;
-            float avgResidual = residualSum / numCells;
+            const int threads = 256;
+            int blocks = (numCells + threads * 2 - 1) / (threads * 2);
+            float* d_partial = simMem.getReduceScratch();
+            size_t shm = threads * sizeof(float);
+            reduceSumBlocksKernel<<<blocks, threads, shm>>>(d_residual, d_partial, numCells);
+            CUDA_CHECK(cudaDeviceSynchronize());
+            float* d_residualSum = simMem.getResidualSum();
+            int finalThreads = 256;
+            int finalShm = finalThreads * sizeof(float);
+            reduceFinalKernel<<<1, finalThreads, finalShm>>>(d_partial, d_residualSum, blocks);
+            CUDA_CHECK(cudaDeviceSynchronize());
+            float residualSumHost = 0.0f;
+            CUDA_CHECK(cudaMemcpy(&residualSumHost, d_residualSum, sizeof(float), cudaMemcpyDeviceToHost));
+            float avgResidual = residualSumHost / numCells;
             if(avgResidual < pressureTolerance){
                 std::swap(d_pressure_in, d_pressure_out);
                 break;

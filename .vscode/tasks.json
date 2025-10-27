@@ -161,6 +161,74 @@
             "dependsOrder": "sequence",
             "group": {"group": "build", "isDefault": true},
             "problemMatcher": []
+        },
+        {
+            "label": "CMake: Configure (VS2022 x64)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-G", "Visual Studio 17 2022",
+                "-A", "x64",
+                "-T", "host=x64",
+                "-S", ".",
+                "-B", "build",
+                "-DCMAKE_TOOLCHAIN_FILE=C:/Users/josep/vcpkg/scripts/buildsystems/vcpkg.cmake",
+                "-DVCPKG_TARGET_TRIPLET=x64-windows"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "VCPKG_ROOT": "C:\\Users\\josep\\vcpkg",
+                    "PATH": "C:\\Program Files\\CMake\\bin;${env:PATH}"
+                }
+            },
+            "group": "build",
+            "problemMatcher": []
+        },
+        {
+            "label": "CMake: Build (VS2022 Debug)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "build", "--config", "Debug", "--parallel"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PATH": "C:\\Program Files\\CMake\\bin;${env:PATH}"
+                }
+            },
+            "group": { "kind": "build" },
+            "dependsOn": "CMake: Configure (VS2022 x64)",
+            "problemMatcher": [ "$msCompile" ]
+        },
+        {
+            "label": "CMake: Build (VS2022 Release)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "--build", "build", "--config", "Release", "--parallel"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}",
+                "env": {
+                    "PATH": "C:\\Program Files\\CMake\\bin;${env:PATH}"
+                }
+            },
+            "group": { "kind": "build", "isDefault": true },
+            "dependsOn": "CMake: Configure (VS2022 x64)",
+            "problemMatcher": [ "$msCompile" ]
+        },
+        {
+            "label": "CMake: Clean",
+            "type": "shell",
+            "command": "powershell",
+            "args": [
+                "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", "Remove-Item -Recurse -Force build -ErrorAction SilentlyContinue"
+            ],
+            "options": { "cwd": "${workspaceFolder}" },
+            "group": "build",
+            "problemMatcher": []
         }
     ]
 }

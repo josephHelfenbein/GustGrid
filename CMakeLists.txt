@@ -1,5 +1,4 @@
 cmake_minimum_required(VERSION 3.18)
-set(CMAKE_CUDA_ARCHITECTURES "60;70;75;80;86")
 project(gustgrid LANGUAGES C CXX CUDA)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -18,8 +17,16 @@ message(STATUS "CUDA version: ${CUDAToolkit_VERSION}")
 message(STATUS "CUDA include dirs: ${CUDAToolkit_INCLUDE_DIRS}")
 message(STATUS "CUDA library dirs: ${CUDAToolkit_LIBRARY_DIR}")
 
+if (NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+  if (CUDAToolkit_VERSION VERSION_GREATER_EQUAL 13.0)
+    set(CMAKE_CUDA_ARCHITECTURES 75 80 86 89 CACHE STRING "" FORCE)
+  else()
+    set(CMAKE_CUDA_ARCHITECTURES 70 75 80 86 89 CACHE STRING "" FORCE)
+  endif()
+endif()
+
 if(NOT UNIX)
-  find_package(freetype CONFIG REQUIRED)
+  find_package(Freetype CONFIG REQUIRED)
   find_package(glfw3 CONFIG REQUIRED)
 endif()
 
@@ -89,7 +96,7 @@ endif()
 link_directories(${CMAKE_SOURCE_DIR}/lib)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    freetype
+    Freetype::Freetype
     glfw
     CUDA::cudart
     CUDA::cuda_driver

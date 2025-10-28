@@ -172,13 +172,12 @@
                 "-T", "host=x64",
                 "-S", ".",
                 "-B", "build",
-                "-DCMAKE_TOOLCHAIN_FILE=C:/Users/josep/vcpkg/scripts/buildsystems/vcpkg.cmake",
+                "-DCMAKE_TOOLCHAIN_FILE=${env:VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
                 "-DVCPKG_TARGET_TRIPLET=x64-windows"
             ],
             "options": {
                 "cwd": "${workspaceFolder}",
                 "env": {
-                    "VCPKG_ROOT": "C:\\Users\\josep\\vcpkg",
                     "PATH": "C:\\Program Files\\CMake\\bin;${env:PATH}"
                 }
             },
